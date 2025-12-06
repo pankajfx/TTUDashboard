@@ -1,0 +1,1131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Safety & Health Excellence - Course Analytics Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="{{ url_for('static', filename='js/echarts.min.js') }}"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 75%, #00f2fe 100%);
+            background-size: 400% 400%;
+            animation: gradientShift 15s ease infinite;
+            min-height: 100vh;
+            padding-bottom: 60px;
+            zoom: 75%;
+        }
+        
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        
+        .card { 
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 1rem;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37),
+                        0 4px 6px -1px rgba(0, 0, 0, 0.1),
+                        inset 0 1px 0 0 rgba(255, 255, 255, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.45),
+                        0 8px 12px -2px rgba(0, 0, 0, 0.15),
+                        inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
+        }
+        
+        .header-gradient {
+            background: linear-gradient(135deg, 
+                rgba(102, 126, 234, 0.95) 0%, 
+                rgba(118, 75, 162, 0.95) 50%,
+                rgba(102, 126, 234, 0.95) 100%);
+            backdrop-filter: blur(20px);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.4),
+                        0 2px 8px 0 rgba(0, 0, 0, 0.1),
+                        inset 0 1px 0 0 rgba(255, 255, 255, 0.3);
+            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .header-gradient::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, 
+                transparent, 
+                rgba(255, 255, 255, 0.2), 
+                transparent);
+            animation: shimmer 3s infinite;
+        }
+        
+        @keyframes shimmer {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+        
+        .header-icon {
+            width: 56px;
+            height: 56px;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.3s ease;
+        }
+        
+        .header-icon:hover {
+            transform: scale(1.05) rotate(5deg);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+        }
+        
+        .header-title {
+            font-size: 1.875rem;
+            font-weight: 800;
+            color: white;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2),
+                         0 1px 3px rgba(0, 0, 0, 0.3);
+            letter-spacing: -0.025em;
+            line-height: 1.2;
+        }
+        
+        .header-subtitle {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-top: 0.25rem;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        }
+        
+        .header-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+        }
+        
+        .badge-dot {
+            width: 8px;
+            height: 8px;
+            background: #10b981;
+            border-radius: 50%;
+            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3),
+                        0 0 10px rgba(16, 185, 129, 0.5);
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { 
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% { 
+                transform: scale(1.2);
+                opacity: 0.8;
+            }
+        }
+        
+        .badge-text {
+            color: white;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        }
+        
+        .settings-btn, .logout-btn {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            font-size: 0.875rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .settings-btn:hover, .logout-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        
+        .loading { 
+            display: inline-block; 
+            width: 20px; 
+            height: 20px; 
+            border: 3px solid rgba(59, 130, 246, 0.3); 
+            border-radius: 50%; 
+            border-top-color: #3b82f6; 
+            animation: spin 1s ease-in-out infinite;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+        }
+        
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .sortable { 
+            cursor: pointer; 
+            user-select: none;
+            transition: all 0.2s ease;
+        }
+        
+        .sortable:hover { 
+            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+            transform: translateY(-1px);
+        }
+        
+        .sort-icon { display: inline-block; margin-left: 0.25rem; opacity: 0.3; }
+        .sort-icon.active { opacity: 1; }
+        svg { display: block; flex-shrink: 0; }
+        
+        .modal { 
+            display: none; 
+            position: fixed; 
+            z-index: 50; 
+            left: 0; 
+            top: 0; 
+            width: 100%; 
+            height: 100%; 
+            overflow: auto; 
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+        }
+        
+        .modal.active { display: flex; align-items: center; justify-content: center; }
+        
+        .modal-content { 
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(10px);
+            margin: auto; 
+            padding: 0; 
+            border-radius: 1rem;
+            max-width: 90%; 
+            max-height: 90vh; 
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 20px 60px 0 rgba(31, 38, 135, 0.5),
+                        inset 0 1px 0 0 rgba(255, 255, 255, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+        
+        .modal-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+            flex-shrink: 0;
+        }
+        
+        .modal-table-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 1.5rem 1.5rem 1.5rem;
+        }
+        
+        .modal-table-container table {
+            width: 100%;
+        }
+        
+        .modal-table-container thead {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: rgba(249, 250, 251, 0.98);
+            backdrop-filter: blur(10px);
+        }
+        
+        body.modal-open {
+            overflow: hidden;
+        }
+        
+        .chart-controls { position: absolute; top: 10px; right: 10px; z-index: 10; }
+        
+        .toggle-btn { 
+            padding: 4px 8px; 
+            font-size: 12px; 
+            border-radius: 6px; 
+            border: 1px solid rgba(209, 213, 219, 0.5);
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .toggle-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        }
+        
+        .toggle-btn.active { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; 
+            border-color: transparent;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        
+        .icon-btn { 
+            padding: 6px; 
+            border-radius: 6px; 
+            border: 1px solid rgba(209, 213, 219, 0.5);
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            cursor: pointer; 
+            margin-left: 4px;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .icon-btn:hover { 
+            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        }
+        
+        .tab-btn { 
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        .tab-btn.active { 
+            color: #667eea;
+            border-color: #667eea;
+            font-weight: 600;
+        }
+        
+        .tab-btn.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            border-radius: 2px 2px 0 0;
+        }
+        
+        .tab-content { display: block; }
+        .tab-content.hidden { display: none; }
+        
+        /* KPI Card Icons with gradient backgrounds */
+        .bg-blue-100 { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        }
+        .bg-green-100 { 
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+        }
+        .bg-purple-100 { 
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%) !important;
+        }
+        .bg-yellow-100 { 
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
+        }
+        
+        .bg-blue-100 svg, .bg-green-100 svg, .bg-purple-100 svg, .bg-yellow-100 svg {
+            color: white !important;
+        }
+        
+        /* Button styling */
+        button.bg-blue-600 {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+            transition: all 0.3s ease;
+        }
+        
+        button.bg-blue-600:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+        }
+        
+        /* Table row hover effect */
+        tbody tr:hover {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%) !important;
+            transform: translateX(2px);
+            transition: all 0.2s ease;
+        }
+        
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: rgba(241, 245, 249, 0.5);
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+        }
+    </style>
+</head>
+<body>
+    <header class="header-gradient">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <div class="header-icon">
+                        <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 class="header-title">Safety & Excellence - Course Analytics Dashboard</h1>
+                        <p class="header-subtitle">Track course progress and user engagement</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="header-badge">
+                        <span class="badge-dot"></span>
+                        <span class="badge-text">Live Data</span>
+                    </div>
+                    {% if username == 'admin' %}
+                    <a href="{{ url_for('settings') }}" class="settings-btn">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                        <span>Settings</span>
+                    </a>
+                    {% endif %}
+                    <a href="{{ url_for('logout') }}" class="logout-btn">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                        </svg>
+                        <span>Logout</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div id="loading" class="text-center py-12">
+            <div class="loading mx-auto"></div>
+            <p class="text-gray-600 mt-4">Loading dashboard data...</p>
+        </div>
+
+        <div id="dashboard" class="hidden">
+            <!-- KPI Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div class="card p-6">
+                    <div class="flex items-center justify-between">
+                        <div><p class="text-sm font-medium text-gray-600">Total Courses</p>
+                            <p id="kpi-courses" class="text-3xl font-bold text-gray-900 mt-2">-</p></div>
+                        <div class="bg-blue-100 p-3 rounded-full"><svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg></div>
+                    </div>
+                </div>
+                <div class="card p-6">
+                    <div class="flex items-center justify-between">
+                        <div><p class="text-sm font-medium text-gray-600">Total Users</p>
+                            <p id="kpi-users" class="text-3xl font-bold text-gray-900 mt-2">-</p></div>
+                        <div class="bg-green-100 p-3 rounded-full"><svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg></div>
+                    </div>
+                </div>
+                <div class="card p-6">
+                    <div class="flex items-center justify-between">
+                        <div><p class="text-sm font-medium text-gray-600">Total Enrollments</p>
+                            <p id="kpi-enrollments" class="text-3xl font-bold text-gray-900 mt-2">-</p></div>
+                        <div class="bg-purple-100 p-3 rounded-full"><svg class="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg></div>
+                    </div>
+                </div>
+                <div class="card p-6">
+                    <div class="flex items-center justify-between">
+                        <div><p class="text-sm font-medium text-gray-600">Completion Rate</p>
+                            <p id="kpi-completion" class="text-3xl font-bold text-gray-900 mt-2">-</p></div>
+                        <div class="bg-yellow-100 p-3 rounded-full"><svg class="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg></div>
+                    </div>
+                </div>
+            </div>
+            <!-- Charts Row 1 - Two Charts -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <div class="card p-6 relative">
+                    <h2 class="text-lg font-semibold text-gray-900 mb-4">Top Courses by Enrollment</h2>
+                    <div class="chart-controls">
+                        <button class="toggle-btn active" onclick="toggleChartView('enrollment', 'top10')">Top 10</button>
+                        <button class="toggle-btn" onclick="toggleChartView('enrollment', 'all')">Show All</button>
+                        <button class="icon-btn" onclick="zoomChart('enrollment')" title="Zoom">🔍</button>
+                    </div>
+                    <div id="chart-enrollment" style="height: 300px;"></div>
+                </div>
+                <div class="card p-6 relative">
+                    <h2 class="text-lg font-semibold text-gray-900 mb-4">Overall Completion Status</h2>
+                    <div class="chart-controls">
+                        <button class="icon-btn" onclick="zoomChart('status')" title="Zoom">🔍</button>
+                    </div>
+                    <div id="chart-status" style="height: 300px;"></div>
+                </div>
+            </div>
+
+            <!-- Charts Row 2 - Full Width -->
+            <div class="mb-8">
+                <div class="card p-6 relative">
+                    <h2 class="text-lg font-semibold text-gray-900 mb-4">User Progress Overview</h2>
+                    <div class="chart-controls">
+                        <button class="toggle-btn active" onclick="toggleChartView('users', 'top10')">Top 10</button>
+                        <button class="toggle-btn" onclick="toggleChartView('users', 'all')">Show All</button>
+                        <button class="icon-btn" onclick="zoomChart('users')" title="Zoom">🔍</button>
+                    </div>
+                    <div id="chart-users" style="height: 350px;"></div>
+                </div>
+            </div>
+
+            <!-- Tabbed Tables -->
+            <div class="card p-6">
+                <!-- Tab Headers -->
+                <div class="flex justify-between items-center mb-4 border-b border-gray-200">
+                    <div class="flex space-x-4">
+                        <button id="tab-courses" class="tab-btn active px-4 py-2 font-semibold text-blue-600 border-b-2 border-blue-600" onclick="switchTab('courses')">
+                            Course Overview
+                        </button>
+                        <button id="tab-users" class="tab-btn px-4 py-2 font-semibold text-gray-500 border-b-2 border-transparent hover:text-gray-700" onclick="switchTab('users')">
+                            User Overview
+                        </button>
+                    </div>
+                    <button id="export-btn" onclick="exportTable('courses')" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 mb-3">
+                        Export CSV
+                    </button>
+                </div>
+
+                <!-- Course Overview Table -->
+                <div id="content-courses" class="tab-content">
+                    <div class="overflow-x-auto" style="max-height: 500px; overflow-y: auto;">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50 sticky top-0 z-10">
+                                <tr>
+                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('courses', 0)">Course Name <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('courses', 1)">Users Assigned <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('courses', 2)">Completed <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('courses', 3)">In Progress <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('courses', 4)">Not Started <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('courses', 5)">Completion Rate <span class="sort-icon">↕</span></th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-courses" class="bg-white divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- User Overview Table -->
+                <div id="content-users" class="tab-content hidden">
+                    <div class="overflow-x-auto" style="max-height: 500px; overflow-y: auto;">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50 sticky top-0 z-10">
+                                <tr>
+                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('users', 0)">User Name <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('users', 1)">Email <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('users', 2)">Total Courses <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('users', 3)">Completed <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('users', 4)">In Progress <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('users', 5)">Completion Rate <span class="sort-icon">↕</span></th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-users" class="bg-white divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Course Detail Modal -->
+    <div id="courseModal" class="modal">
+        <div class="modal-content" style="width: 80%; max-width: 1000px;">
+            <div class="modal-header">
+                <div class="flex justify-between items-center">
+                    <h2 id="courseModalTitle" class="text-2xl font-bold text-gray-900"></h2>
+                    <button onclick="closeModal('courseModal')" class="text-gray-500 hover:text-gray-700 text-3xl leading-none">&times;</button>
+                </div>
+            </div>
+            <div class="modal-table-container">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User Name</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Completion %</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Activity Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Completion Date</th>
+                        </tr>
+                    </thead>
+                    <tbody id="courseModalBody" class="bg-white divide-y divide-gray-200"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Detail Modal -->
+    <div id="userModal" class="modal">
+        <div class="modal-content" style="width: 80%; max-width: 1000px;">
+            <div class="modal-header">
+                <div class="flex justify-between items-center">
+                    <h2 id="userModalTitle" class="text-2xl font-bold text-gray-900"></h2>
+                    <button onclick="closeModal('userModal')" class="text-gray-500 hover:text-gray-700 text-3xl leading-none">&times;</button>
+                </div>
+            </div>
+            <div class="modal-table-container">
+                <div class="mb-6">
+                    <h3 class="text-lg font-semibold mb-2">Course Completion Timeline</h3>
+                    <div id="userTimelineChart" style="height: 300px;"></div>
+                </div>
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Course Name</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Completion %</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Activity Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Completion Date</th>
+                        </tr>
+                    </thead>
+                    <tbody id="userModalBody" class="bg-white divide-y divide-gray-200"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chart Zoom Modal -->
+    <div id="chartModal" class="modal">
+        <div class="modal-content" style="width: 90%; max-width: 1200px;overflow:hidden">
+            <div class="bg-white p-6 rounded-lg">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 id="chartModalTitle" class="text-2xl font-bold text-gray-900"></h2>
+                    <button onclick="closeModal('chartModal')" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+                </div>
+                <div id="chartModalContent" style="height: 600px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let coursesData = [];
+        let usersData = [];
+        let sortDirection = {};
+        let chartViews = { enrollment: 'top10', users: 'top10' };
+        let charts = {};
+
+        // Load data on page load
+        window.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const response = await fetch('/api/summary');
+                const data = await response.json();
+                if (data.error) throw new Error(data.error);
+
+                document.getElementById('kpi-courses').textContent = data.kpis.total_courses;
+                document.getElementById('kpi-users').textContent = data.kpis.total_users;
+                document.getElementById('kpi-enrollments').textContent = data.kpis.total_enrollments;
+                document.getElementById('kpi-completion').textContent = data.kpis.overall_completion_rate + '%';
+
+                coursesData = data.courses;
+                usersData = data.users;
+
+                renderTable('courses', coursesData);
+                renderTable('users', usersData);
+
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('dashboard').classList.remove('hidden');
+
+                setTimeout(() => {
+                    renderEnrollmentChart(coursesData);
+                    renderStatusChart(coursesData);
+                    renderUsersChart(usersData);
+                }, 100);
+            } catch (error) {
+                document.getElementById('loading').innerHTML = `<div class="text-red-600"><p class="text-xl font-semibold">Error loading data</p><p class="mt-2">${error.message}</p></div>`;
+            }
+        });
+
+        function renderTable(type, data) {
+            const tbody = document.getElementById(`table-${type}`);
+            if (type === 'courses') {
+                tbody.innerHTML = data.map(course => `
+                    <tr class="hover:bg-gray-50 cursor-pointer" onclick="viewCourseDetails('${course.course_name.replace(/'/g, "\\'")}')">
+                        <td class="px-6 py-4 text-sm font-medium text-gray-900">${course.course_name}</td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${course.total_users}</td>
+                        <td class="px-6 py-4 text-sm text-green-600 font-medium">${course.completed}</td>
+                        <td class="px-6 py-4 text-sm text-yellow-600">${course.in_progress}</td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${course.not_started}</td>
+                        <td class="px-6 py-4 text-sm text-gray-900">
+                            <div class="flex items-center">
+                                <div class="w-16 bg-gray-200 rounded-full h-2 mr-2">
+                                    <div class="bg-blue-600 h-2 rounded-full" style="width: ${course.completion_rate}%"></div>
+                                </div>
+                                <span>${course.completion_rate}%</span>
+                            </div>
+                        </td>
+                    </tr>
+                `).join('');
+            } else {
+                tbody.innerHTML = data.map(user => `
+                    <tr class="hover:bg-gray-50 cursor-pointer" onclick="viewUserDetails('${user.user_email.replace(/'/g, "\\'")}', '${user.user_name.replace(/'/g, "\\'")}')">
+                        <td class="px-6 py-4 text-sm font-medium text-gray-900">${user.user_name}</td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${user.user_email}</td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${user.total_courses}</td>
+                        <td class="px-6 py-4 text-sm text-green-600 font-medium">${user.completed_courses}</td>
+                        <td class="px-6 py-4 text-sm text-yellow-600">${user.in_progress}</td>
+                        <td class="px-6 py-4 text-sm text-gray-900">
+                            <div class="flex items-center">
+                                <div class="w-16 bg-gray-200 rounded-full h-2 mr-2">
+                                    <div class="bg-blue-600 h-2 rounded-full" style="width: ${user.completion_rate}%"></div>
+                                </div>
+                                <span>${user.completion_rate}%</span>
+                            </div>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+        }
+
+        function renderEnrollmentChart(courses) {
+            const chartDom = document.getElementById('chart-enrollment');
+            if (charts.enrollment) charts.enrollment.dispose();
+            charts.enrollment = echarts.init(chartDom);
+            
+            const dataToShow = chartViews.enrollment === 'top10' ? courses.slice(0, 10) : courses;
+            const reversedData = [...dataToShow].reverse();
+            
+            const option = {
+                tooltip: { 
+                    trigger: 'axis', 
+                    axisPointer: { 
+                        type: 'shadow',
+                        snap: true
+                    },
+                    confine: true,
+                    extraCssText: 'max-width: 400px; white-space: normal; word-wrap: break-word; z-index: 9999; box-shadow: 0 2px 8px rgba(0,0,0,0.15);',
+                    formatter: function(params) {
+                        if (!params || params.length === 0) return '';
+                        const data = params[0];
+                        const course = reversedData[data.dataIndex];
+                        return `<strong>${course.course_name}</strong><br/>Users: ${data.value}`;
+                    }
+                },
+                grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                xAxis: { type: 'value' },
+                yAxis: { 
+                    type: 'category',
+                    data: reversedData.map(c => c.course_name.substring(0, 40) + '...'),
+                    axisLabel: { fontSize: 10 }
+                },
+                series: [{
+                    name: 'Users',
+                    type: 'bar',
+                    data: reversedData.map(c => c.total_users),
+                    itemStyle: { color: '#3b82f6' }
+                }]
+            };
+            charts.enrollment.setOption(option);
+        }
+
+        function renderStatusChart(courses) {
+            const chartDom = document.getElementById('chart-status');
+            if (charts.status) charts.status.dispose();
+            charts.status = echarts.init(chartDom);
+            
+            const totalCompleted = courses.reduce((sum, c) => sum + c.completed, 0);
+            const totalInProgress = courses.reduce((sum, c) => sum + c.in_progress, 0);
+            const totalNotStarted = courses.reduce((sum, c) => sum + c.not_started, 0);
+            
+            const option = {
+                tooltip: { 
+                    trigger: 'item', 
+                    formatter: '{a} <br/>{b}: {c} ({d}%)',
+                    confine: true,
+                    extraCssText: 'z-index: 9999; box-shadow: 0 2px 8px rgba(0,0,0,0.15);'
+                },
+                legend: { 
+                    orient: 'vertical', 
+                    left: 'left', 
+                    top: 'center',
+                    textStyle: {
+                        fontSize: 12,
+                        fontWeight: 500
+                    },
+                    itemGap: 15
+                },
+                series: [{
+                    name: 'Status',
+                    type: 'pie',
+                    radius: ['40%', '70%'],  // Donut chart
+                    center: ['60%', '50%'],
+                    avoidLabelOverlap: false,
+                    itemStyle: {
+                        borderRadius: 8,
+                        borderColor: '#fff',
+                        borderWidth: 3,
+                        shadowBlur: 20,
+                        shadowOffsetX: 0,
+                        shadowOffsetY: 5,
+                        shadowColor: 'rgba(0, 0, 0, 0.3)'
+                    },
+                    label: {
+                        show: false,
+                        position: 'center'
+                    },
+                    emphasis: {
+                        label: {
+                            show: true,
+                            fontSize: 20,
+                            fontWeight: 'bold',
+                            formatter: '{d}%'
+                        },
+                        itemStyle: {
+                            shadowBlur: 30,
+                            shadowOffsetX: 0,
+                            shadowOffsetY: 10,
+                            shadowColor: 'rgba(0, 0, 0, 0.5)'
+                        },
+                        scale: true,
+                        scaleSize: 10
+                    },
+                    labelLine: {
+                        show: false
+                    },
+                    data: [
+                        { 
+                            value: totalCompleted, 
+                            name: 'Completed',
+                            itemStyle: { 
+                                color: {
+                                    type: 'linear',
+                                    x: 0, y: 0, x2: 1, y2: 1,
+                                    colorStops: [
+                                        { offset: 0, color: '#10b981' },
+                                        { offset: 1, color: '#059669' }
+                                    ]
+                                }
+                            }
+                        },
+                        { 
+                            value: totalInProgress, 
+                            name: 'In Progress',
+                            itemStyle: { 
+                                color: {
+                                    type: 'linear',
+                                    x: 0, y: 0, x2: 1, y2: 1,
+                                    colorStops: [
+                                        { offset: 0, color: '#f59e0b' },
+                                        { offset: 1, color: '#d97706' }
+                                    ]
+                                }
+                            }
+                        },
+                        { 
+                            value: totalNotStarted, 
+                            name: 'Not Started',
+                            itemStyle: { 
+                                color: {
+                                    type: 'linear',
+                                    x: 0, y: 0, x2: 1, y2: 1,
+                                    colorStops: [
+                                        { offset: 0, color: '#94a3b8' },
+                                        { offset: 1, color: '#64748b' }
+                                    ]
+                                }
+                            }
+                        }
+                    ]
+                }]
+            };
+            charts.status.setOption(option);
+        }
+
+        function renderUsersChart(users) {
+            const chartDom = document.getElementById('chart-users');
+            if (charts.users) charts.users.dispose();
+            charts.users = echarts.init(chartDom);
+            
+            const dataToShow = chartViews.users === 'top10' ? users.slice(0, 10) : users;
+            
+            const option = {
+                tooltip: { 
+                    trigger: 'axis', 
+                    axisPointer: { 
+                        type: 'shadow',
+                        snap: true
+                    },
+                    confine: true,
+                    extraCssText: 'max-width: 350px; white-space: normal; word-wrap: break-word; z-index: 9999; box-shadow: 0 2px 8px rgba(0,0,0,0.15);',
+                    formatter: function(params) {
+                        if (!params || params.length === 0) return '';
+                        const userIndex = params[0].dataIndex;
+                        const user = dataToShow[userIndex];
+                        return `<strong>${user.user_name}</strong><br/>
+                                Email: ${user.user_email}<br/>
+                                Total Courses: ${user.total_courses}<br/>
+                                Completed: ${user.completed_courses}`;
+                    }
+                },
+                legend: { data: ['Total Courses', 'Completed'] },
+                grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                xAxis: { 
+                    type: 'category',
+                    data: dataToShow.map(u => u.user_name),
+                    axisLabel: { rotate: 45, fontSize: 9 }
+                },
+                yAxis: { type: 'value' },
+                series: [
+                    {
+                        name: 'Total Courses',
+                        type: 'bar',
+                        data: dataToShow.map(u => u.total_courses),
+                        itemStyle: { color: '#3b82f6' }
+                    },
+                    {
+                        name: 'Completed',
+                        type: 'bar',
+                        data: dataToShow.map(u => u.completed_courses),
+                        itemStyle: { color: '#10b981' }
+                    }
+                ]
+            };
+            charts.users.setOption(option);
+        }
+
+        function toggleChartView(chartType, view) {
+            chartViews[chartType] = view;
+            const buttons = event.target.parentElement.querySelectorAll('.toggle-btn');
+            buttons.forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            if (chartType === 'enrollment') renderEnrollmentChart(coursesData);
+            else if (chartType === 'users') renderUsersChart(usersData);
+        }
+
+        function zoomChart(chartType) {
+            const modal = document.getElementById('chartModal');
+            const title = document.getElementById('chartModalTitle');
+            const content = document.getElementById('chartModalContent');
+            
+            const titles = {
+                'enrollment': 'Top Courses by Enrollment',
+                'status': 'Overall Completion Status',
+                'users': 'User Progress Overview'
+            };
+            
+            title.textContent = titles[chartType];
+            modal.classList.add('active');
+            
+            setTimeout(() => {
+                const zoomedChart = echarts.init(content);
+                const originalChart = charts[chartType];
+                if (originalChart) {
+                    const option = originalChart.getOption();
+                    // Ensure tooltip settings are preserved with confine true for stability
+                    if (option.tooltip && option.tooltip[0]) {
+                        option.tooltip[0].confine = true;
+                    }
+                    zoomedChart.setOption(option);
+                }
+                window.addEventListener('resize', () => zoomedChart.resize());
+            }, 100);
+        }
+
+        async function viewCourseDetails(courseName) {
+            try {
+                const response = await fetch(`/api/course/${encodeURIComponent(courseName)}`);
+                const data = await response.json();
+                
+                document.getElementById('courseModalTitle').textContent = courseName;
+                const tbody = document.getElementById('courseModalBody');
+                tbody.innerHTML = data.users.map(user => `
+                    <tr>
+                        <td class="px-6 py-4 text-sm text-gray-900">${user.user_name}</td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${user.user_email}</td>
+                        <td class="px-6 py-4 text-sm text-gray-900">${user.completion_percentage}%</td>
+                        <td class="px-6 py-4 text-sm"><span class="px-2 py-1 text-xs rounded ${user.completion_status === 'Completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">${user.completion_status}</span></td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${user.activity_status}</td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${user.completion_date || 'N/A'}</td>
+                    </tr>
+                `).join('');
+                
+                openModal('courseModal');
+            } catch (error) {
+                alert('Error loading course details: ' + error.message);
+            }
+        }
+
+        async function viewUserDetails(userEmail, userName) {
+            try {
+                const response = await fetch(`/api/user/${encodeURIComponent(userEmail)}`);
+                const data = await response.json();
+                
+                document.getElementById('userModalTitle').textContent = `${userName} (${userEmail})`;
+                const tbody = document.getElementById('userModalBody');
+                tbody.innerHTML = data.courses.map(course => `
+                    <tr>
+                        <td class="px-6 py-4 text-sm text-gray-900">${course.course_name}</td>
+                        <td class="px-6 py-4 text-sm text-gray-900">${course.completion_percentage}%</td>
+                        <td class="px-6 py-4 text-sm"><span class="px-2 py-1 text-xs rounded ${course.completion_status === 'Completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">${course.completion_status}</span></td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${course.activity_status}</td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${course.completion_date || 'N/A'}</td>
+                    </tr>
+                `).join('');
+                
+                // Render timeline
+                const completedCourses = data.courses.filter(c => c.completion_date);
+                if (completedCourses.length > 0) {
+                    setTimeout(() => {
+                        const chartDom = document.getElementById('userTimelineChart');
+                        const timelineChart = echarts.init(chartDom);
+                        
+                        const option = {
+                            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                            grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                            xAxis: { type: 'time' },
+                            yAxis: { 
+                                type: 'category',
+                                data: completedCourses.map(c => c.course_name.substring(0, 30) + '...'),
+                                axisLabel: { fontSize: 10 }
+                            },
+                            series: [{
+                                type: 'scatter',
+                                symbolSize: 15,
+                                data: completedCourses.map((c, idx) => [c.completion_date, idx]),
+                                itemStyle: { color: '#10b981' }
+                            }]
+                        };
+                        timelineChart.setOption(option);
+                    }, 100);
+                }
+                
+                openModal('userModal');
+            } catch (error) {
+                alert('Error loading user details: ' + error.message);
+            }
+        }
+
+        function openModal(modalId) {
+            document.getElementById(modalId).classList.add('active');
+            document.body.classList.add('modal-open');
+        }
+        
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('active');
+            document.body.classList.remove('modal-open');
+        }
+
+        function sortTable(type, columnIndex) {
+            const keys = type === 'courses' 
+                ? ['course_name', 'total_users', 'completed', 'in_progress', 'not_started', 'completion_rate']
+                : ['user_name', 'user_email', 'total_courses', 'completed_courses', 'in_progress', 'completion_rate'];
+            const key = keys[columnIndex];
+            const data = type === 'courses' ? coursesData : usersData;
+            
+            if (!sortDirection[type + key]) sortDirection[type + key] = 'asc';
+            else sortDirection[type + key] = sortDirection[type + key] === 'asc' ? 'desc' : 'asc';
+            
+            data.sort((a, b) => {
+                let aVal = a[key], bVal = b[key];
+                if (aVal === null || aVal === '') aVal = '';
+                if (bVal === null || bVal === '') bVal = '';
+                
+                if (typeof aVal === 'string') {
+                    return sortDirection[type + key] === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+                } else {
+                    return sortDirection[type + key] === 'asc' ? aVal - bVal : bVal - aVal;
+                }
+            });
+            
+            renderTable(type, data);
+        }
+
+        function switchTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active', 'text-blue-600', 'border-blue-600');
+                btn.classList.add('text-gray-500', 'border-transparent');
+            });
+            
+            const activeTab = document.getElementById(`tab-${tabName}`);
+            activeTab.classList.add('active', 'text-blue-600', 'border-blue-600');
+            activeTab.classList.remove('text-gray-500', 'border-transparent');
+            
+            // Update content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.add('hidden');
+            });
+            document.getElementById(`content-${tabName}`).classList.remove('hidden');
+            
+            // Update export button
+            document.getElementById('export-btn').setAttribute('onclick', `exportTable('${tabName}')`);
+        }
+
+        function exportTable(type) {
+            const data = type === 'courses' ? coursesData : usersData;
+            let csv = type === 'courses'
+                ? 'Course Name,Users Assigned,Completed,In Progress,Not Started,Completion Rate\n'
+                : 'User Name,Email,Total Courses,Completed,In Progress,Completion Rate\n';
+            
+            data.forEach(row => {
+                if (type === 'courses') {
+                    csv += `"${row.course_name}",${row.total_users},${row.completed},${row.in_progress},${row.not_started},${row.completion_rate}%\n`;
+                } else {
+                    csv += `"${row.user_name}","${row.user_email}",${row.total_courses},${row.completed_courses},${row.in_progress},${row.completion_rate}%\n`;
+                }
+            });
+            
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${type}_overview.csv`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+        }
+
+        window.onclick = function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.classList.remove('active');
+                document.body.classList.remove('modal-open');
+            }
+        }
+    </script>
+
+    <!-- Footer -->
+    <footer class="fixed bottom-0 left-0 right-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 text-white py-3 shadow-lg z-40">
+        <div class="container mx-auto px-4 text-center">
+            <p class="text-sm font-medium">
+                © 2025 Nelco | Safety & Excellence Dashboard - Management
+            </p>
+        </div>
+    </footer>
+</body>
+</html>

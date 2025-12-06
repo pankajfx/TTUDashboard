@@ -1,0 +1,18 @@
+1. Need to build a flask app that gets response from an api and builds tables, drilldown dashboards from that data.
+2. The data is of past one year, users who have been assigned some courses and their progress in those courses.
+There needs to be a global ddashboard and table for total number of courses, users enrolled in each course, how may courses have been
+completed, how many are pending. How many users have completed the course.
+So there needs to be different viewpoints.
+Suppose  total 200 courses are there. Suppose course 1 was assigned to 30 users. COurse 2 to 50 users COurse 3 to 5 users.
+Then i need to show COurse 1 completed by 10 users, pending by 20 users. Similarly for other courses.
+
+So a top level view will be a table containing Course Name, Assigned to User count, Course Completed by user count, course pending by user count, Course Start date.
+THis table must be sortable By all columns, when clicked on header. This will help user to analyze, which course are the oldest. Which course had maximum number of users etc.
+
+Then on clicking row of any Course, open dashboard of its details and a table of Users who were assigned, and their status of their progress (Not Started, 60%, Complete.)
+
+So analyze this document and Response Sample.json file. Suggest me what all views can be incorporated.
+I also want a timeline graph for each user when clicked, to show which courses where done in past.
+All of this should be very modern and use a modern free charting library that has advanced support for drilldown and visualization.
+The data should be exportable too.
+Dont write any code, suggest an approach for a simple yet modern professional dashboard and tables soultion for this. I will share more specs later. 

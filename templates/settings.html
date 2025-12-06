@@ -1,0 +1,1360 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Course Analytics Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 75%, #00f2fe 100%);
+            background-size: 400% 400%;
+            animation: gradientShift 60s ease infinite;
+            min-height: 100vh;
+            padding-bottom: 60px;
+            zoom: 75%;
+        }
+
+        @keyframes gradientShift {
+            0% {
+                background-position: 0% 50%;
+            }
+
+            50% {
+                background-position: 100% 50%;
+            }
+
+            100% {
+                background-position: 0% 50%;
+            }
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 1rem;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        }
+
+        .btn-danger:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+        }
+
+        .input-field {
+            border: 2px solid rgba(102, 126, 234, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .input-field:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .tab-btn {
+            padding: 0.75rem 1.5rem;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .tab-btn.active {
+            border-bottom-color: #667eea;
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .user-item,
+        .assignment-item {
+            transition: all 0.2s ease;
+        }
+
+        .user-item:hover,
+        .assignment-item:hover {
+            background: rgba(102, 126, 234, 0.05);
+            transform: translateX(4px);
+        }
+        
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: rgba(241, 245, 249, 0.5);
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+        }
+    </style>
+</head>
+
+<body class="p-8">
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <div class="card p-6 mb-2">
+            <div class="flex justify-between items-center mb-5">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900">Admin Settings</h1>
+                    <p class="text-gray-600 mt-1">Manage users and course assignments</p>
+                </div>
+                <a href="{{ url_for('index') }}"
+                    class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition">
+                    ← Back to Dashboard
+                </a>
+            </div>
+            <!-- Tabs -->
+            <div class="flex border-gray-200">
+                <button class="tab-btn active" onclick="switchTab('users')">
+                    User Management
+                </button>
+                <button class="tab-btn" onclick="switchTab('assignments')">
+                    Course Assignments
+                </button>
+            </div>
+        </div>
+
+
+
+        <!-- User Management Tab -->
+        <div id="tab-users" class="tab-content mb-10">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- Add User Form -->
+                <div class="card p-6">
+                    <h2 class="text-xl font-bold text-gray-900 mb-4">Add New User</h2>
+                    <form id="addUserForm" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">Email Address</label>
+                            <input type="email" id="userEmail" required class="input-field w-full px-4 py-2 rounded-lg"
+                                placeholder="user@example.com">
+                        </div>
+                        <button type="submit" class="btn-primary w-full py-2 px-4 text-white font-semibold rounded-lg">
+                            Add User
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Users List -->
+                <div class="card p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-bold text-gray-900">Registered Users</h2>
+                        <button onclick="syncUsers()"
+                            class="px-3 py-1 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition">
+                            🔄 Sync from API
+                        </button>
+                    </div>
+                    <div id="syncMessage" class="mb-2 text-sm"></div>
+
+                    <!-- Search Input -->
+                    <div class="mb-4">
+                        <input type="text" id="userSearchInput" placeholder="Search users by email or name..."
+                            class="input-field w-full px-4 py-2 rounded-lg" />
+                        <div id="searchResultsCount" class="text-sm text-gray-600 mt-2">
+                            <!-- Shows: "Showing X of Y users" -->
+                        </div>
+                    </div>
+
+                    <div id="usersList" class="space-y-2 max-h-60 overflow-y-auto">
+                        <!-- Users will be loaded here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Course Assignments Tab -->
+        <div id="tab-assignments" class="tab-content hidden mb-10">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- Create Assignment Form -->
+                <div class="card p-6">
+                    <h2 class="text-xl font-bold text-gray-900 mb-4">Create Course Assignment</h2>
+                    <form id="createAssignmentForm" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">Select Course</label>
+                            <select id="courseSelect" required class="input-field w-full px-4 py-2 rounded-lg">
+                                <option value="">Loading courses...</option>
+                            </select>
+                        </div>
+                        <div>
+                            <div class="flex justify-between items-center mb-2">
+                                <label class="block text-sm font-semibold text-gray-700">Select Users</label>
+                                <div class="flex gap-2">
+                                    <button type="button" onclick="selectAllFilteredUsers()"
+                                        class="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">
+                                        Select All
+                                    </button>
+                                    <button type="button" onclick="deselectAllUsers()"
+                                        class="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition">
+                                        Deselect All
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Search Input for Assignment Users -->
+                            <div class="mb-2">
+                                <input type="text" id="assignmentUserSearchInput"
+                                    placeholder="Search users by email or name..."
+                                    class="input-field w-full px-3 py-2 text-sm rounded-lg" />
+                            </div>
+
+                            <div id="userSelectionCounter" class="mb-2 text-sm font-medium text-blue-600">
+                                0 users selected
+                            </div>
+                            <div id="assignmentSearchResultsCount" class="mb-2 text-xs text-gray-600">
+                                <!-- Shows: "Showing X of Y users" -->
+                            </div>
+                            <div id="usersCheckboxList"
+                                class="border border-gray-200 rounded-lg p-4 max-h-60 overflow-y-auto">
+                                <!-- User checkboxes will be loaded here -->
+                            </div>
+                        </div>
+
+                        <!-- Selected Users Basket -->
+                        <div id="selectedUsersBasket" class="hidden">
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">Selected Users</label>
+                            <div class="border border-blue-200 bg-blue-50 rounded-lg p-4 max-h-40 overflow-y-auto">
+                                <div id="selectedUsersList" class="space-y-1">
+                                    <!-- Selected users will appear here -->
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">Deadline</label>
+                            <input type="date" id="deadline" required class="input-field w-full px-4 py-2 rounded-lg">
+                        </div>
+                        <button type="submit" class="btn-primary w-full py-2 px-4 text-white font-semibold rounded-lg">
+                            Create Assignment
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Assignments List -->
+                <div class="card p-6">
+                    <h2 class="text-xl font-bold text-gray-900 mb-4">Active Assignments</h2>
+                    <div id="assignmentsList" class="space-y-4 overflow-y-auto">
+                        <!-- Assignments will be loaded here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Assignment Modal -->
+    <div id="editAssignmentModal"
+        class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="card max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+            <div class="p-6">
+                <div class="flex justify-between items-start mb-6">
+                    <h2 class="text-2xl font-bold text-gray-900">Edit Assignment</h2>
+                    <button onclick="closeEditAssignment()" class="text-gray-500 hover:text-gray-700">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="mb-4">
+                    <p class="text-sm text-gray-600"><strong>Course:</strong> <span id="editCourseName"></span></p>
+                    <p class="text-sm text-gray-600"><strong>Deadline:</strong> <span id="editDeadline"></span></p>
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Search Users</label>
+                    <input type="text" id="editUserSearchInput" placeholder="Search users by email or name..."
+                        class="input-field w-full px-3 py-2 text-sm rounded-lg" />
+                </div>
+
+                <div class="mb-4">
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="block text-sm font-semibold text-gray-700">Select Users</label>
+                        <div class="flex gap-2">
+                            <button type="button" onclick="selectAllEditUsers()"
+                                class="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">
+                                Select All
+                            </button>
+                            <button type="button" onclick="deselectAllEditUsers()"
+                                class="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition">
+                                Deselect All
+                            </button>
+                        </div>
+                    </div>
+                    <div id="editUserSelectionCounter" class="mb-2 text-sm font-medium text-blue-600">
+                        0 users selected
+                    </div>
+                    <div id="editUsersCheckboxList"
+                        class="border border-gray-200 rounded-lg p-4 max-h-64 overflow-y-auto">
+                        <!-- User checkboxes will be loaded here -->
+                    </div>
+                </div>
+
+                <div class="flex gap-3">
+                    <button onclick="saveAssignmentEdit()"
+                        class="btn-primary flex-1 py-2 px-4 text-white font-semibold rounded-lg">
+                        Save Changes
+                    </button>
+                    <button onclick="closeEditAssignment()"
+                        class="flex-1 py-2 px-4 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400 transition">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Assignment Details Modal -->
+    <div id="assignmentDetailsModal"
+        class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="card max-w-6xl w-full h-[90vh] flex flex-col">
+            <div class="p-6 flex-shrink-0">
+                <!-- Header -->
+                <div class="flex justify-between items-start mb-6">
+                    <div>
+                        <h2 id="modalCourseName" class="text-2xl font-bold text-gray-900"></h2>
+                        <p id="modalDeadline" class="text-sm text-gray-600 mt-1"></p>
+                    </div>
+                    <button onclick="closeAssignmentDetails()" class="text-gray-500 hover:text-gray-700">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- View Toggle -->
+                <div class="flex items-center justify-center mb-6 bg-gray-100 rounded-lg p-1">
+                    <button id="assignmentViewBtn" onclick="switchView('assignment')"
+                        class="flex-1 px-4 py-2 rounded-md font-medium transition bg-white text-blue-600 shadow">
+                        Assignment View
+                    </button>
+                    <button id="courseViewBtn" onclick="switchView('course')"
+                        class="flex-1 px-4 py-2 rounded-md font-medium transition text-gray-600">
+                        Course View
+                    </button>
+                </div>
+
+                <!-- Stats Cards -->
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+                    <div class="bg-blue-50 p-4 rounded-lg">
+                        <p class="text-sm text-gray-600">Total Users</p>
+                        <p id="statTotalUsers" class="text-2xl font-bold text-blue-600">0</p>
+                    </div>
+                    <div class="bg-green-50 p-4 rounded-lg">
+                        <p class="text-sm text-gray-600">Completed</p>
+                        <p id="statCompleted" class="text-2xl font-bold text-green-600">0</p>
+                    </div>
+                    <div class="bg-yellow-50 p-4 rounded-lg">
+                        <p class="text-sm text-gray-600">In Progress</p>
+                        <p id="statInProgress" class="text-2xl font-bold text-yellow-600">0</p>
+                    </div>
+                    <div class="bg-red-50 p-4 rounded-lg">
+                        <p class="text-sm text-gray-600">Not Started</p>
+                        <p id="statNotStarted" class="text-2xl font-bold text-red-600">0</p>
+                    </div>
+                    <div class="bg-purple-50 p-4 rounded-lg">
+                        <p class="text-sm text-gray-600">Completion Rate</p>
+                        <p id="statCompletionRate" class="text-2xl font-bold text-purple-600">0%</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Users Table with Fixed Header and Scrollable Body -->
+            <div class="flex-1 overflow-hidden px-6 pb-6">
+                <div class="h-full border border-gray-200 rounded-lg overflow-hidden flex flex-col">
+                    <div class="overflow-x-auto flex-shrink-0">
+                        <table class="w-full">
+                            <thead class="bg-gray-100 sticky top-0">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">User Email</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Name</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Status</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Progress</th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Completion Date
+                                    </th>
+                                </tr>
+                            </thead>
+                        </table>
+                    </div>
+                    <div class="flex-1 overflow-y-auto">
+                        <table class="w-full">
+                            <tbody id="usersTableBody" class="divide-y divide-gray-200">
+                                <!-- User rows will be loaded here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Custom Notification System
+        function showNotification(title, message, type = 'info') {
+            const toast = document.getElementById('notificationToast');
+            const toastCard = document.getElementById('toastCard');
+            const toastIcon = document.getElementById('toastIcon');
+            const toastTitle = document.getElementById('toastTitle');
+            const toastMessage = document.getElementById('toastMessage');
+            
+            // Set content
+            toastTitle.textContent = title;
+            toastMessage.textContent = message;
+            
+            // Set icon and color based on type
+            const types = {
+                success: { icon: '✅', color: 'border-green-500', bg: 'bg-green-50' },
+                error: { icon: '❌', color: 'border-red-500', bg: 'bg-red-50' },
+                warning: { icon: '⚠️', color: 'border-yellow-500', bg: 'bg-yellow-50' },
+                info: { icon: 'ℹ️', color: 'border-blue-500', bg: 'bg-blue-50' }
+            };
+            
+            const config = types[type] || types.info;
+            toastIcon.textContent = config.icon;
+            toastCard.className = `card p-4 shadow-2xl border-l-4 ${config.color}`;
+            
+            // Show notification
+            toast.classList.remove('hidden');
+            toast.style.animation = 'slideInRight 0.3s ease-out';
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                closeNotification();
+            }, 5000);
+        }
+        
+        function closeNotification() {
+            const toast = document.getElementById('notificationToast');
+            toast.style.animation = 'slideOutRight 0.3s ease-in';
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 300);
+        }
+        
+        // Add animation styles
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideInRight {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes slideOutRight {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(100%); opacity: 0; }
+            }
+        `;
+        document.head.appendChild(style);
+        
+        let users = [];
+        let filteredUsers = [];
+        let assignmentUsers = [];
+        let filteredAssignmentUsers = [];
+        let courses = [];
+        let assignments = [];
+
+        // Tab switching
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.add('hidden');
+            });
+            document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+
+            if (tabName === 'assignments') {
+                loadCourses();
+                loadUsersForAssignment();
+            }
+        }
+
+        // Filter users based on search term
+        function filterUsers(searchTerm) {
+            // If search term is empty, show all users
+            if (!searchTerm || searchTerm.trim() === '') {
+                filteredUsers = [...users];
+                renderUsers();
+                updateSearchResultsCount();
+                return;
+            }
+
+            // Convert search term to lowercase for case-insensitive matching
+            const lowerSearchTerm = searchTerm.toLowerCase();
+
+            // Filter users by substring matching on email and name
+            filteredUsers = users.filter(user => {
+                const emailMatch = user.email.toLowerCase().includes(lowerSearchTerm);
+                const nameMatch = user.name ? user.name.toLowerCase().includes(lowerSearchTerm) : false;
+                return emailMatch || nameMatch;
+            });
+
+            renderUsers();
+            updateSearchResultsCount();
+        }
+
+        // Update search results count display
+        function updateSearchResultsCount() {
+            const countElement = document.getElementById('searchResultsCount');
+            if (users.length === 0) {
+                countElement.textContent = '';
+                return;
+            }
+
+            const searchInput = document.getElementById('userSearchInput');
+            const searchTerm = searchInput ? searchInput.value.trim() : '';
+
+            if (searchTerm === '') {
+                countElement.textContent = `Showing all ${users.length} users`;
+            } else {
+                countElement.textContent = `Showing ${filteredUsers.length} of ${users.length} users`;
+            }
+        }
+
+        // Load users
+        async function loadUsers() {
+            try {
+                const response = await fetch('/api/settings/users');
+                users = await response.json();
+                filteredUsers = [...users];
+                renderUsers();
+                updateSearchResultsCount();
+
+                // Show sync info
+                const apiUsers = users.filter(u => u.source === 'api').length;
+                const manualUsers = users.filter(u => u.source === 'manual').length;
+                document.getElementById('syncMessage').innerHTML =
+                    `<span class="text-gray-600">Total: ${users.length} users (${apiUsers} from API, ${manualUsers} manual)</span>`;
+            } catch (error) {
+                console.error('Error loading users:', error);
+            }
+        }
+
+        // Sync users from API
+        async function syncUsers() {
+            const btn = event.target;
+            btn.disabled = true;
+            btn.textContent = '⏳ Syncing...';
+
+            try {
+                await loadUsers();
+                btn.textContent = '✓ Synced!';
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.textContent = '🔄 Sync from API';
+                }, 2000);
+            } catch (error) {
+                btn.textContent = '✗ Error';
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.textContent = '🔄 Sync from API';
+                }, 2000);
+            }
+        }
+
+        // Render users list
+        function renderUsers() {
+            const usersList = document.getElementById('usersList');
+
+            // Handle empty state
+            if (users.length === 0) {
+                usersList.innerHTML = '<p class="text-gray-500 text-center py-4">No users added yet</p>';
+                return;
+            }
+
+            // Handle no search results
+            if (filteredUsers.length === 0) {
+                const searchInput = document.getElementById('userSearchInput');
+                const searchTerm = searchInput ? searchInput.value : '';
+                usersList.innerHTML = `<p class="text-gray-500 text-center py-4">No users found matching "${searchTerm}"</p>`;
+                return;
+            }
+
+            // Render filtered users
+            usersList.innerHTML = filteredUsers.map(user => `
+                <div class="user-item flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2">
+                            <p class="font-medium text-gray-900">${user.email}</p>
+                            ${user.source === 'api' ? '<span class="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">API</span>' : '<span class="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded">Manual</span>'}
+                        </div>
+                        ${user.name ? `<p class="text-sm text-gray-600">${user.name}</p>` : ''}
+                        <p class="text-xs text-gray-500">Added: ${user.added_date}</p>
+                    </div>
+                    <button onclick="deleteUser('${user.email}')" class="text-red-600 hover:text-red-800 ml-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        // Validate user email for duplicates
+        function validateUserEmail(email) {
+            // Check if email exists in users array (case-insensitive)
+            const emailLower = email.toLowerCase();
+
+            for (const user of users) {
+                if (user.email.toLowerCase() === emailLower) {
+                    return {
+                        valid: false,
+                        error: `User with email '${email}' already exists`
+                    };
+                }
+            }
+
+            return {
+                valid: true,
+                error: ''
+            };
+        }
+
+        // Show validation error
+        function showValidationError(message) {
+            const emailInput = document.getElementById('userEmail');
+
+            // Highlight the email input field
+            emailInput.classList.add('border-red-500', 'border-2');
+            emailInput.classList.remove('border-gray-200');
+
+            // Create or update error message element
+            let errorElement = document.getElementById('emailValidationError');
+            if (!errorElement) {
+                errorElement = document.createElement('div');
+                errorElement.id = 'emailValidationError';
+                errorElement.className = 'text-red-600 text-sm mt-2';
+                emailInput.parentElement.appendChild(errorElement);
+            }
+            errorElement.textContent = message;
+        }
+
+        // Clear validation error
+        function clearValidationError() {
+            const emailInput = document.getElementById('userEmail');
+
+            // Remove highlight from email input field
+            emailInput.classList.remove('border-red-500', 'border-2');
+            emailInput.classList.add('border-gray-200');
+
+            // Remove error message element
+            const errorElement = document.getElementById('emailValidationError');
+            if (errorElement) {
+                errorElement.remove();
+            }
+        }
+
+        // Add user
+        document.getElementById('addUserForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('userEmail').value;
+
+            // Clear any previous validation errors
+            clearValidationError();
+
+            // Validate email for duplicates (client-side)
+            const validation = validateUserEmail(email);
+            if (!validation.valid) {
+                showValidationError(validation.error);
+                return; // Prevent form submission
+            }
+
+            try {
+                const response = await fetch('/api/settings/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showNotification('Success', 'User added successfully!', 'success');
+                    document.getElementById('userEmail').value = '';
+                    clearValidationError();
+                    loadUsers();
+                } else {
+                    showValidationError(data.error || 'Failed to add user');
+                }
+            } catch (error) {
+                showValidationError('Error adding user: ' + error.message);
+            }
+        });
+
+        // Delete user
+        async function deleteUser(email) {
+            if (!confirm(`Are you sure you want to delete ${email}?`)) return;
+
+            try {
+                const response = await fetch(`/api/settings/users/${encodeURIComponent(email)}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    showNotification('Success', 'User deleted successfully!', 'success');
+                    loadUsers();
+                } else {
+                    showNotification('Error', 'Failed to delete user', 'error');
+                }
+            } catch (error) {
+                showNotification('Error', 'Error deleting user: ' + error.message, 'error');
+            }
+        }
+
+        // Load courses
+        async function loadCourses() {
+            try {
+                const response = await fetch('/api/settings/courses');
+                const data = await response.json();
+                courses = data.courses || [];
+
+                const select = document.getElementById('courseSelect');
+                select.innerHTML = '<option value="">Select a course...</option>' +
+                    courses.map(course => `<option value="${course}">${course}</option>`).join('');
+            } catch (error) {
+                console.error('Error loading courses:', error);
+            }
+        }
+
+        // Filter assignment users based on search term
+        function filterAssignmentUsers(searchTerm) {
+            // If search term is empty, show all users
+            if (!searchTerm || searchTerm.trim() === '') {
+                filteredAssignmentUsers = [...assignmentUsers];
+                renderAssignmentUsers();
+                updateAssignmentSearchResultsCount();
+                return;
+            }
+
+            // Convert search term to lowercase for case-insensitive matching
+            const lowerSearchTerm = searchTerm.toLowerCase();
+
+            // Filter users by substring matching on email and name
+            filteredAssignmentUsers = assignmentUsers.filter(user => {
+                const emailMatch = user.email.toLowerCase().includes(lowerSearchTerm);
+                const nameMatch = user.name ? user.name.toLowerCase().includes(lowerSearchTerm) : false;
+                return emailMatch || nameMatch;
+            });
+
+            renderAssignmentUsers();
+            updateAssignmentSearchResultsCount();
+        }
+
+        // Update assignment search results count display
+        function updateAssignmentSearchResultsCount() {
+            const countElement = document.getElementById('assignmentSearchResultsCount');
+            if (assignmentUsers.length === 0) {
+                countElement.textContent = '';
+                return;
+            }
+
+            const searchInput = document.getElementById('assignmentUserSearchInput');
+            const searchTerm = searchInput ? searchInput.value.trim() : '';
+
+            if (searchTerm === '') {
+                countElement.textContent = `Showing all ${assignmentUsers.length} users`;
+            } else {
+                countElement.textContent = `Showing ${filteredAssignmentUsers.length} of ${assignmentUsers.length} users`;
+            }
+        }
+
+        // Render assignment users checkboxes
+        function renderAssignmentUsers() {
+            const container = document.getElementById('usersCheckboxList');
+
+            // Handle empty state
+            if (assignmentUsers.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-sm">No users available. Add users first.</p>';
+                return;
+            }
+
+            // Handle no search results
+            if (filteredAssignmentUsers.length === 0) {
+                const searchInput = document.getElementById('assignmentUserSearchInput');
+                const searchTerm = searchInput ? searchInput.value : '';
+                container.innerHTML = `<p class="text-gray-500 text-sm text-center py-2">No users found matching "${searchTerm}"</p>`;
+                return;
+            }
+
+            // Get currently selected emails to preserve selection state
+            const selectedEmails = Array.from(document.querySelectorAll('.user-checkbox:checked')).map(cb => cb.value);
+
+            // Render filtered users
+            container.innerHTML = filteredAssignmentUsers.map(user => {
+                const isChecked = selectedEmails.includes(user.email);
+                return `
+                    <label class="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
+                        <input type="checkbox" value="${user.email}" class="user-checkbox" onchange="updateSelectionCounter()" ${isChecked ? 'checked' : ''}>
+                        <span class="text-sm flex-1">${user.email}${user.name ? ` (${user.name})` : ''}</span>
+                    </label>
+                `;
+            }).join('');
+        }
+
+        // Load users for assignment checkboxes
+        async function loadUsersForAssignment() {
+            try {
+                const response = await fetch('/api/settings/users');
+                assignmentUsers = await response.json();
+                filteredAssignmentUsers = [...assignmentUsers];
+
+                renderAssignmentUsers();
+                updateAssignmentSearchResultsCount();
+                updateSelectionCounter();
+            } catch (error) {
+                console.error('Error loading users:', error);
+            }
+        }
+
+        // Select all filtered users (only visible ones)
+        function selectAllFilteredUsers() {
+            document.querySelectorAll('.user-checkbox').forEach(cb => {
+                cb.checked = true;
+            });
+            updateSelectionCounter();
+        }
+
+        // Deselect all users
+        function deselectAllUsers() {
+            document.querySelectorAll('.user-checkbox').forEach(cb => {
+                cb.checked = false;
+            });
+            updateSelectionCounter();
+        }
+
+        // Update selection counter and basket
+        function updateSelectionCounter() {
+            const checkedBoxes = document.querySelectorAll('.user-checkbox:checked');
+            const counter = document.getElementById('userSelectionCounter');
+            const basket = document.getElementById('selectedUsersBasket');
+            const selectedList = document.getElementById('selectedUsersList');
+
+            const count = checkedBoxes.length;
+            const total = assignmentUsers.length;
+
+            if (counter) {
+                counter.textContent = `${count} of ${total} users selected`;
+                counter.className = count > 0
+                    ? 'mb-2 text-sm font-medium text-blue-600'
+                    : 'mb-2 text-sm font-medium text-gray-600';
+            }
+
+            // Show/hide basket and populate with selected users
+            if (count > 0) {
+                basket.classList.remove('hidden');
+
+                // Get selected user details
+                const selectedEmails = Array.from(checkedBoxes).map(cb => cb.value);
+                const selectedUserDetails = assignmentUsers.filter(user => selectedEmails.includes(user.email));
+
+                selectedList.innerHTML = selectedUserDetails.map(user => `
+                    <div class="flex items-center justify-between p-2 bg-white rounded border border-blue-200">
+                        <span class="text-sm text-gray-900">${user.email}${user.name ? ` (${user.name})` : ''}</span>
+                        <button onclick="removeUserFromSelection('${user.email}')" class="text-red-500 hover:text-red-700 ml-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                `).join('');
+            } else {
+                basket.classList.add('hidden');
+            }
+        }
+
+        // Remove user from selection
+        function removeUserFromSelection(email) {
+            const checkbox = document.querySelector(`.user-checkbox[value="${email}"]`);
+            if (checkbox) {
+                checkbox.checked = false;
+                updateSelectionCounter();
+            }
+        }
+
+        // Create assignment
+        document.getElementById('createAssignmentForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const courseName = document.getElementById('courseSelect').value;
+            const deadline = document.getElementById('deadline').value;
+            const selectedUsers = Array.from(document.querySelectorAll('.user-checkbox:checked')).map(cb => cb.value);
+
+            if (!courseName || !deadline || selectedUsers.length === 0) {
+                showNotification('Validation Error', 'Please fill all fields and select at least one user', 'warning');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/settings/assignments', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        course_name: courseName,
+                        user_emails: selectedUsers,
+                        deadline: deadline
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showNotification('Success', 'Assignment created successfully!', 'success');
+                    document.getElementById('createAssignmentForm').reset();
+                    document.querySelectorAll('.user-checkbox').forEach(cb => cb.checked = false);
+                    loadAssignments();
+                } else {
+                    showNotification('Error', data.error || 'Failed to create assignment', 'error');
+                }
+            } catch (error) {
+                showNotification('Error', 'Error creating assignment: ' + error.message, 'error');
+            }
+        });
+
+        // Load assignments
+        async function loadAssignments() {
+            try {
+                const response = await fetch('/api/settings/assignments');
+                assignments = await response.json();
+                renderAssignments();
+            } catch (error) {
+                console.error('Error loading assignments:', error);
+            }
+        }
+
+        // Render assignments with completion percentage
+        async function renderAssignments() {
+            const assignmentsList = document.getElementById('assignmentsList');
+            if (assignments.length === 0) {
+                assignmentsList.innerHTML = '<p class="text-gray-500 text-center py-4">No assignments created yet</p>';
+                return;
+            }
+
+            // Fetch completion data for each assignment
+            const assignmentsWithStats = await Promise.all(assignments.map(async (assignment) => {
+                try {
+                    const response = await fetch(`/api/settings/assignments/${assignment.id}`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        return { ...assignment, stats: data.assignment_view };
+                    }
+                } catch (error) {
+                    console.error(`Error fetching stats for assignment ${assignment.id}:`, error);
+                }
+                return { ...assignment, stats: null };
+            }));
+
+            assignmentsList.innerHTML = assignmentsWithStats.map(assignment => {
+                const completionRate = assignment.stats ? assignment.stats.completion_rate : 0;
+                const completionColor = completionRate >= 75 ? 'text-green-600' : completionRate >= 50 ? 'text-yellow-600' : 'text-red-600';
+
+                return `
+                <div class="assignment-item p-4 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition" onclick="viewAssignmentDetails(${assignment.id})">
+                    <div class="flex justify-between items-start mb-2">
+                        <div class="flex-1">
+                            <h3 class="font-semibold text-gray-900">${assignment.course_name}</h3>
+                            <p class="text-sm ${completionColor} font-medium">Completion: ${completionRate.toFixed(1)}%</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="event.stopPropagation(); sendReminders(${assignment.id})" 
+                                    class="text-yellow-600 hover:text-yellow-800" title="Send Reminders">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
+                                </svg>
+                            </button>
+                            <button onclick="event.stopPropagation(); editAssignment(${assignment.id})" 
+                                    class="text-blue-600 hover:text-blue-800" title="Edit Assignment">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                </svg>
+                            </button>
+                            <button onclick="event.stopPropagation(); deleteAssignment(${assignment.id})" 
+                                    class="text-red-600 hover:text-red-800" title="Delete Assignment">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <p class="text-sm text-gray-600 mb-2">
+                        <strong>Deadline:</strong> ${assignment.deadline}
+                    </p>
+                    <p class="text-sm text-gray-600 mb-2">
+                        <strong>Assigned to:</strong> ${assignment.user_emails.length} user(s)
+                    </p>
+                    ${assignment.stats ? `
+                        <div class="text-xs text-gray-600 mt-2">
+                            <span class="text-green-600">✓ ${assignment.stats.completed}</span> | 
+                            <span class="text-yellow-600">⟳ ${assignment.stats.in_progress}</span> | 
+                            <span class="text-red-600">✗ ${assignment.stats.not_started}</span>
+                        </div>
+                    ` : ''}
+                    <p class="text-xs text-gray-400 mt-2">Created: ${assignment.created_date}</p>
+                </div>
+            `;
+            }).join('');
+        }
+
+        // Delete assignment
+        async function deleteAssignment(id) {
+            if (!confirm('Are you sure you want to delete this assignment?')) return;
+
+            try {
+                const response = await fetch(`/api/settings/assignments/${id}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    showNotification('Success', 'Assignment deleted successfully!', 'success');
+                    loadAssignments();
+                } else {
+                    showNotification('Error', 'Failed to delete assignment', 'error');
+                }
+            } catch (error) {
+                showNotification('Error', 'Error deleting assignment: ' + error.message, 'error');
+            }
+        }
+
+        // Assignment details modal
+        let currentAssignmentData = null;
+        let currentView = 'assignment';
+
+        async function viewAssignmentDetails(assignmentId) {
+            try {
+                const response = await fetch(`/api/settings/assignments/${assignmentId}`);
+                if (!response.ok) {
+                    alert('Failed to load assignment details');
+                    return;
+                }
+
+                currentAssignmentData = await response.json();
+                currentView = 'assignment';
+
+                // Update modal header
+                document.getElementById('modalCourseName').textContent = currentAssignmentData.assignment.course_name;
+                document.getElementById('modalDeadline').textContent = `Deadline: ${currentAssignmentData.assignment.deadline} | Created: ${currentAssignmentData.assignment.created_date}`;
+
+                // Show modal
+                document.getElementById('assignmentDetailsModal').classList.remove('hidden');
+
+                // Display assignment view by default
+                switchView('assignment');
+            } catch (error) {
+                console.error('Error loading assignment details:', error);
+                showNotification('Error', 'Error loading assignment details', 'error');
+            }
+        }
+
+        function closeAssignmentDetails() {
+            document.getElementById('assignmentDetailsModal').classList.add('hidden');
+            currentAssignmentData = null;
+        }
+
+        function switchView(view) {
+            if (!currentAssignmentData) return;
+
+            currentView = view;
+            const data = view === 'assignment' ? currentAssignmentData.assignment_view : currentAssignmentData.course_view;
+
+            // Update toggle buttons
+            const assignmentBtn = document.getElementById('assignmentViewBtn');
+            const courseBtn = document.getElementById('courseViewBtn');
+
+            if (view === 'assignment') {
+                assignmentBtn.classList.add('bg-white', 'text-blue-600', 'shadow');
+                assignmentBtn.classList.remove('text-gray-600');
+                courseBtn.classList.remove('bg-white', 'text-blue-600', 'shadow');
+                courseBtn.classList.add('text-gray-600');
+            } else {
+                courseBtn.classList.add('bg-white', 'text-blue-600', 'shadow');
+                courseBtn.classList.remove('text-gray-600');
+                assignmentBtn.classList.remove('bg-white', 'text-blue-600', 'shadow');
+                assignmentBtn.classList.add('text-gray-600');
+            }
+
+            // Update stats
+            document.getElementById('statTotalUsers').textContent = data.total_users;
+            document.getElementById('statCompleted').textContent = data.completed;
+            document.getElementById('statInProgress').textContent = data.in_progress;
+            document.getElementById('statNotStarted').textContent = data.not_started;
+            document.getElementById('statCompletionRate').textContent = data.completion_rate.toFixed(1) + '%';
+
+            // Update users table
+            renderUsersTable(data.users);
+        }
+
+        function renderUsersTable(users) {
+            const tbody = document.getElementById('usersTableBody');
+
+            if (users.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">No users found</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = users.map(user => {
+                const statusClass = user.completion_status === 'Completed' ? 'bg-green-100 text-green-800' :
+                    user.completion_status === 'Current' ? 'bg-yellow-100 text-yellow-800' :
+                        user.untouched ? 'bg-gray-100 text-gray-800' :
+                            'bg-red-100 text-red-800';
+
+                const statusText = user.untouched ? 'Not Touched' : user.completion_status || 'Not Started';
+                const progress = parseFloat(user.completion_percentage || 0);
+                const progressColor = progress >= 75 ? 'bg-green-500' : progress >= 50 ? 'bg-yellow-500' : 'bg-red-500';
+
+                return `
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-3 text-sm text-gray-900">${user.email}</td>
+                        <td class="px-4 py-3 text-sm text-gray-700">${user.name || '-'}</td>
+                        <td class="px-4 py-3">
+                            <span class="px-2 py-1 text-xs font-medium rounded ${statusClass}">
+                                ${statusText}
+                            </span>
+                        </td>
+                        <td class="px-4 py-3">
+                            <div class="flex items-center gap-2">
+                                <div class="flex-1 bg-gray-200 rounded-full h-2">
+                                    <div class="${progressColor} h-2 rounded-full" style="width: ${progress}%"></div>
+                                </div>
+                                <span class="text-xs text-gray-600">${progress.toFixed(0)}%</span>
+                            </div>
+                        </td>
+                        <td class="px-4 py-3 text-sm text-gray-600">${user.completion_date || '-'}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Send reminders to incomplete users
+        async function sendReminders(assignmentId) {
+            if (!confirm('Send reminder emails to all users who have not completed the course?')) return;
+
+            try {
+                const response = await fetch(`/api/settings/assignments/${assignmentId}/remind`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showNotification('Reminders Sent', `Sent: ${data.reminders_sent} | Failed: ${data.reminders_failed} | Already Completed: ${data.already_completed}`, 'success');
+                } else {
+                    showNotification('Error', 'Failed to send reminders: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                showNotification('Error', 'Error sending reminders: ' + error.message, 'error');
+            }
+        }
+
+        // Edit assignment
+        let currentEditAssignmentId = null;
+        let editAssignmentUsers = [];
+        let filteredEditUsers = [];
+
+        async function editAssignment(assignmentId) {
+            try {
+                currentEditAssignmentId = assignmentId;
+
+                // Load assignment details
+                const assignmentResponse = await fetch(`/api/settings/assignments/${assignmentId}`);
+                if (!assignmentResponse.ok) {
+                    showNotification('Error', 'Failed to load assignment', 'error');
+                    return;
+                }
+                const assignmentData = await assignmentResponse.json();
+
+                // Load all users
+                const usersResponse = await fetch('/api/settings/users');
+                editAssignmentUsers = await usersResponse.json();
+                filteredEditUsers = [...editAssignmentUsers];
+
+                // Set modal data
+                document.getElementById('editCourseName').textContent = assignmentData.assignment.course_name;
+                document.getElementById('editDeadline').textContent = assignmentData.assignment.deadline;
+
+                // Render users with current selection
+                renderEditUsers(assignmentData.assignment.user_emails);
+
+                // Show modal
+                document.getElementById('editAssignmentModal').classList.remove('hidden');
+            } catch (error) {
+                console.error('Error loading assignment for edit:', error);
+                showNotification('Error', 'Error loading assignment', 'error');
+            }
+        }
+
+        function closeEditAssignment() {
+            document.getElementById('editAssignmentModal').classList.add('hidden');
+            currentEditAssignmentId = null;
+            document.getElementById('editUserSearchInput').value = '';
+        }
+
+        function renderEditUsers(selectedEmails = []) {
+            const container = document.getElementById('editUsersCheckboxList');
+
+            if (filteredEditUsers.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-sm text-center py-2">No users found</p>';
+                return;
+            }
+
+            container.innerHTML = filteredEditUsers.map(user => {
+                const isChecked = selectedEmails.includes(user.email);
+                return `
+                    <label class="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
+                        <input type="checkbox" value="${user.email}" class="edit-user-checkbox" onchange="updateEditSelectionCounter()" ${isChecked ? 'checked' : ''}>
+                        <span class="text-sm flex-1">${user.email}${user.name ? ` (${user.name})` : ''}</span>
+                    </label>
+                `;
+            }).join('');
+
+            updateEditSelectionCounter();
+        }
+
+        function filterEditUsers(searchTerm) {
+            if (!searchTerm || searchTerm.trim() === '') {
+                filteredEditUsers = [...editAssignmentUsers];
+            } else {
+                const lowerSearchTerm = searchTerm.toLowerCase();
+                filteredEditUsers = editAssignmentUsers.filter(user => {
+                    const emailMatch = user.email.toLowerCase().includes(lowerSearchTerm);
+                    const nameMatch = user.name ? user.name.toLowerCase().includes(lowerSearchTerm) : false;
+                    return emailMatch || nameMatch;
+                });
+            }
+
+            // Preserve selections
+            const selectedEmails = Array.from(document.querySelectorAll('.edit-user-checkbox:checked')).map(cb => cb.value);
+            renderEditUsers(selectedEmails);
+        }
+
+        function updateEditSelectionCounter() {
+            const checkedBoxes = document.querySelectorAll('.edit-user-checkbox:checked');
+            const counter = document.getElementById('editUserSelectionCounter');
+            const count = checkedBoxes.length;
+            const total = editAssignmentUsers.length;
+
+            counter.textContent = `${count} of ${total} users selected`;
+            counter.className = count > 0
+                ? 'mb-2 text-sm font-medium text-blue-600'
+                : 'mb-2 text-sm font-medium text-gray-600';
+        }
+
+        function selectAllEditUsers() {
+            document.querySelectorAll('.edit-user-checkbox').forEach(cb => cb.checked = true);
+            updateEditSelectionCounter();
+        }
+
+        function deselectAllEditUsers() {
+            document.querySelectorAll('.edit-user-checkbox').forEach(cb => cb.checked = false);
+            updateEditSelectionCounter();
+        }
+
+        async function saveAssignmentEdit() {
+            const selectedUsers = Array.from(document.querySelectorAll('.edit-user-checkbox:checked')).map(cb => cb.value);
+
+            if (selectedUsers.length === 0) {
+                showNotification('Validation Error', 'Please select at least one user', 'warning');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/settings/assignments/${currentEditAssignmentId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_emails: selectedUsers })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showNotification('Assignment Updated', `Users Added: ${data.users_added} | Users Removed: ${data.users_removed} | Notifications Sent: ${data.notifications_sent}`, 'success');
+                    closeEditAssignment();
+                    loadAssignments();
+                } else {
+                    showNotification('Error', 'Failed to update assignment: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                showNotification('Error', 'Error updating assignment: ' + error.message, 'error');
+            }
+        }
+
+        // Add event listener for edit user search
+        document.getElementById('editUserSearchInput').addEventListener('input', (e) => {
+            filterEditUsers(e.target.value);
+        });
+
+        // Close modal on escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeAssignmentDetails();
+                closeEditAssignment();
+            }
+        });
+
+        // Initialize
+        loadUsers();
+        loadAssignments();
+
+        // Add event listener for user management search input
+        document.getElementById('userSearchInput').addEventListener('input', (e) => {
+            filterUsers(e.target.value);
+        });
+
+        // Add event listener for assignment user search input
+        document.getElementById('assignmentUserSearchInput').addEventListener('input', (e) => {
+            filterAssignmentUsers(e.target.value);
+        });
+
+        // Add event listener to clear validation errors when user types
+        document.getElementById('userEmail').addEventListener('input', () => {
+            clearValidationError();
+        });
+    </script>
+
+    <!-- Custom Notification Toast -->
+    <div id="notificationToast" class="hidden fixed top-20 right-6 z-50 min-w-80 max-w-md">
+        <div class="card p-4 shadow-2xl border-l-4" id="toastCard">
+            <div class="flex items-start gap-3">
+                <div id="toastIcon" class="flex-shrink-0 text-2xl"></div>
+                <div class="flex-1">
+                    <h4 id="toastTitle" class="font-semibold text-gray-900 mb-1"></h4>
+                    <p id="toastMessage" class="text-sm text-gray-600"></p>
+                </div>
+                <button onclick="closeNotification()" class="flex-shrink-0 text-gray-400 hover:text-gray-600">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="fixed bottom-0 left-0 right-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 text-white py-3 shadow-lg z-40">
+        <div class="container mx-auto px-4 text-center">
+            <p class="text-sm font-medium">
+                © 2025 Nelco | Safety & Excellence Dashboard - Management
+            </p>
+        </div>
+    </footer>
+</body>
+
+</html>
