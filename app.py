@@ -5,9 +5,13 @@ from datetime import datetime
 import json
 import os
 import logging
+import re
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from functools import wraps
 from email_service import send_course_assignment_email, send_deadline_reminder_email, send_course_removal_email
+import openpyxl
+from io import BytesIO
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -186,6 +190,89 @@ def add_user():
         return jsonify({'message': 'User added successfully', 'user': users[-1]})
     else:
         return jsonify({'error': 'Failed to save user'}), 500
+
+@app.route('/api/settings/users/bulk-upload', methods=['POST'])
+@admin_required
+def bulk_upload_users():
+    """Bulk upload users from Excel file"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        return jsonify({'error': 'Invalid file format. Please upload an Excel file (.xlsx or .xls)'}), 400
+    
+    try:
+        # Read Excel file
+        workbook = openpyxl.load_workbook(BytesIO(file.read()))
+        sheet = workbook.active
+        
+        # Email validation regex
+        email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+        
+        valid_emails = []
+        invalid_emails = []
+        
+        # Parse rows for emails (check first column)
+        for row in sheet.iter_rows(min_row=1, values_only=True):
+            if row[0]:  # If first cell has value
+                email = str(row[0]).strip()
+                if email_pattern.match(email):
+                    valid_emails.append(email)
+                else:
+                    invalid_emails.append(email)
+        
+        if not valid_emails:
+            return jsonify({
+                'error': 'No valid email addresses found in file',
+                'invalid_emails': invalid_emails
+            }), 400
+        
+        # Load existing users
+        users_data = load_json_file(USERS_FILE, {'users': []})
+        users = users_data.get('users', [])
+        existing_emails = {u['email'].lower() for u in users}
+        
+        # Add new users (ignore duplicates)
+        added_users = []
+        duplicate_users = []
+        
+        for email in valid_emails:
+            email_lower = email.lower()
+            if email_lower not in existing_emails:
+                new_user = {
+                    'email': email,
+                    'name': '',
+                    'source': 'manual',
+                    'added_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+                users.append(new_user)
+                added_users.append(email)
+                existing_emails.add(email_lower)
+            else:
+                duplicate_users.append(email)
+        
+        # Save updated users
+        users_data['users'] = users
+        if save_json_file(USERS_FILE, users_data):
+            return jsonify({
+                'message': f'Successfully processed {len(valid_emails)} email(s)',
+                'added_count': len(added_users),
+                'added_users': added_users,
+                'duplicate_count': len(duplicate_users),
+                'duplicate_users': duplicate_users,
+                'invalid_count': len(invalid_emails),
+                'invalid_emails': invalid_emails
+            })
+        else:
+            return jsonify({'error': 'Failed to save users'}), 500
+            
+    except Exception as e:
+        logger.error(f"Error processing Excel file: {str(e)}")
+        return jsonify({'error': f'Error processing file: {str(e)}'}), 500
 
 @app.route('/api/settings/users/<email>', methods=['DELETE'])
 @admin_required
@@ -572,6 +659,138 @@ def delete_assignment(assignment_id):
     else:
         return jsonify({'error': 'Failed to delete assignment'}), 500
 
+@app.route('/api/settings/assignments/bulk-upload', methods=['POST'])
+@admin_required
+def bulk_upload_assignment():
+    """Bulk upload users for course assignment from Excel file"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    course_name = request.form.get('course_name')
+    deadline = request.form.get('deadline')
+    
+    if not course_name or not deadline:
+        return jsonify({'error': 'Course name and deadline are required'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        return jsonify({'error': 'Invalid file format. Please upload an Excel file (.xlsx or .xls)'}), 400
+    
+    try:
+        # Read Excel file
+        workbook = openpyxl.load_workbook(BytesIO(file.read()))
+        sheet = workbook.active
+        
+        # Email validation regex
+        email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+        
+        valid_emails = []
+        invalid_emails = []
+        
+        # Parse rows for emails (check first column)
+        for row in sheet.iter_rows(min_row=1, values_only=True):
+            if row[0]:  # If first cell has value
+                email = str(row[0]).strip()
+                if email_pattern.match(email):
+                    valid_emails.append(email)
+                else:
+                    invalid_emails.append(email)
+        
+        if not valid_emails:
+            return jsonify({
+                'error': 'No valid email addresses found in file',
+                'invalid_emails': invalid_emails
+            }), 400
+        
+        # Load existing users
+        users_data = load_json_file(USERS_FILE, {'users': []})
+        users = users_data.get('users', [])
+        existing_emails = {u['email'].lower() for u in users}
+        
+        # Add new users if they don't exist
+        new_users_added = []
+        for email in valid_emails:
+            email_lower = email.lower()
+            if email_lower not in existing_emails:
+                new_user = {
+                    'email': email,
+                    'name': '',
+                    'source': 'manual',
+                    'added_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+                users.append(new_user)
+                new_users_added.append(email)
+                existing_emails.add(email_lower)
+        
+        # Save updated users if any new users were added
+        if new_users_added:
+            users_data['users'] = users
+            save_json_file(USERS_FILE, users_data)
+        
+        # Create assignment with all valid emails
+        assignments_data = load_json_file(ASSIGNMENTS_FILE, {'assignments': []})
+        assignments = assignments_data.get('assignments', [])
+        
+        assignment = {
+            'id': len(assignments) + 1,
+            'course_name': course_name,
+            'user_emails': valid_emails,
+            'deadline': deadline,
+            'created_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'created_by': session.get('username')
+        }
+        
+        assignments.append(assignment)
+        assignments_data['assignments'] = assignments
+        
+        if not save_json_file(ASSIGNMENTS_FILE, assignments_data):
+            return jsonify({'error': 'Failed to save assignment'}), 500
+        
+        # Send email notifications
+        email_results = {'success': 0, 'failed': 0, 'failed_emails': []}
+        email_to_name = {user['email']: user['name'] for user in users}
+        
+        for user_email in valid_emails:
+            user_name = email_to_name.get(user_email, user_email.split('@')[0])
+            
+            try:
+                success = send_course_assignment_email(
+                    user_email=user_email,
+                    user_name=user_name,
+                    course_name=course_name,
+                    deadline=deadline
+                )
+                
+                if success:
+                    email_results['success'] += 1
+                else:
+                    email_results['failed'] += 1
+                    email_results['failed_emails'].append(user_email)
+            except Exception as e:
+                email_results['failed'] += 1
+                email_results['failed_emails'].append(user_email)
+                logger.error(f"Error sending email to {user_email}: {e}")
+        
+        return jsonify({
+            'message': 'Assignment created successfully',
+            'assignment': assignment,
+            'users_assigned': len(valid_emails),
+            'new_users_added': len(new_users_added),
+            'new_users_list': new_users_added,
+            'invalid_count': len(invalid_emails),
+            'invalid_emails': invalid_emails,
+            'emails_sent': email_results['success'],
+            'emails_failed': email_results['failed'],
+            'failed_emails': email_results['failed_emails']
+        }), 201
+            
+    except Exception as e:
+        logger.error(f"Error processing Excel file: {str(e)}")
+        return jsonify({'error': f'Error processing file: {str(e)}'}), 500
+
 @app.route('/')
 @login_required
 def index():
@@ -609,6 +828,17 @@ def get_data():
         error_details = traceback.format_exc()
         print(f"Error in get_data: {error_details}")
         return jsonify({"error": str(e), "details": error_details}), 500
+
+@app.route('/api/raw-data')
+@login_required
+def get_raw_data():
+    """Return raw data for detailed analysis"""
+    try:
+        data = load_data()
+        return jsonify({'data': data})
+    except Exception as e:
+        logger.error(f"Error loading raw data: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/summary')
 @login_required

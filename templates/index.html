@@ -13,10 +13,9 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 75%, #00f2fe 100%);
             background-size: 400% 400%;
-            animation: gradientShift 15s ease infinite;
+            animation: gradientShift 60s ease infinite;
             min-height: 100vh;
             padding-bottom: 60px;
-            zoom: 75%;
         }
         
         @keyframes gradientShift {
@@ -68,7 +67,7 @@
                 transparent, 
                 rgba(255, 255, 255, 0.2), 
                 transparent);
-            animation: shimmer 3s infinite;
+            animation: shimmer 20s infinite;
         }
         
         @keyframes shimmer {
@@ -135,7 +134,7 @@
             border-radius: 50%;
             box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3),
                         0 0 10px rgba(16, 185, 129, 0.5);
-            animation: pulse 2s ease-in-out infinite;
+            animation: pulse 5s ease-in-out infinite;
         }
         
         @keyframes pulse {
@@ -231,7 +230,6 @@
             padding: 0; 
             border-radius: 1rem;
             max-width: 90%; 
-            max-height: 90vh; 
             overflow: hidden;
             display: flex;
             flex-direction: column;
@@ -482,14 +480,14 @@
                         <button class="toggle-btn" onclick="toggleChartView('enrollment', 'all')">Show All</button>
                         <button class="icon-btn" onclick="zoomChart('enrollment')" title="Zoom">🔍</button>
                     </div>
-                    <div id="chart-enrollment" style="height: 300px;"></div>
+                    <div id="chart-enrollment" style="height: 400px;"></div>
                 </div>
                 <div class="card p-6 relative">
                     <h2 class="text-lg font-semibold text-gray-900 mb-4">Overall Completion Status</h2>
                     <div class="chart-controls">
                         <button class="icon-btn" onclick="zoomChart('status')" title="Zoom">🔍</button>
                     </div>
-                    <div id="chart-status" style="height: 300px;"></div>
+                    <div id="chart-status" style="height: 400px;"></div>
                 </div>
             </div>
 
@@ -566,14 +564,22 @@
 
     <!-- Course Detail Modal -->
     <div id="courseModal" class="modal">
-        <div class="modal-content" style="width: 80%; max-width: 1000px;">
-            <div class="modal-header">
+        <div class="modal-content" style="width: 80%; max-width: 1000px; max-height: 90vh; display: flex; flex-direction: column;">
+            <div class="modal-header" style="flex-shrink: 0;">
                 <div class="flex justify-between items-center">
-                    <h2 id="courseModalTitle" class="text-2xl font-bold text-gray-900"></h2>
+                    <h2 id="courseModalTitle" class="text-2xl font-bold text-gray-900">Loading...</h2>
                     <button onclick="closeModal('courseModal')" class="text-gray-500 hover:text-gray-700 text-3xl leading-none">&times;</button>
                 </div>
             </div>
-            <div class="modal-table-container">
+            
+            <!-- Loading Spinner -->
+            <div id="courseModalLoading" class="flex flex-col items-center justify-center py-12">
+                <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-600 mb-4"></div>
+                <p class="text-gray-600 font-medium">Loading course details...</p>
+            </div>
+            
+            <!-- Content (hidden initially) -->
+            <div id="courseModalContent" class="modal-table-container" style="display: none;">
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
@@ -593,14 +599,22 @@
 
     <!-- User Detail Modal -->
     <div id="userModal" class="modal">
-        <div class="modal-content" style="width: 80%; max-width: 1000px;">
-            <div class="modal-header">
+        <div class="modal-content" style="width: 80%; max-width: 1000px; max-height: 90vh; display: flex; flex-direction: column;">
+            <div class="modal-header" style="flex-shrink: 0;">
                 <div class="flex justify-between items-center">
-                    <h2 id="userModalTitle" class="text-2xl font-bold text-gray-900"></h2>
+                    <h2 id="userModalTitle" class="text-2xl font-bold text-gray-900">Loading...</h2>
                     <button onclick="closeModal('userModal')" class="text-gray-500 hover:text-gray-700 text-3xl leading-none">&times;</button>
                 </div>
             </div>
-            <div class="modal-table-container">
+            
+            <!-- Loading Spinner -->
+            <div id="userModalLoading" class="flex flex-col items-center justify-center py-12">
+                <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-600 mb-4"></div>
+                <p class="text-gray-600 font-medium">Loading user details...</p>
+            </div>
+            
+            <!-- Content (hidden initially) -->
+            <div id="userModalContent" class="modal-table-container" style="display: none;">
                 <div class="mb-6">
                     <h3 class="text-lg font-semibold mb-2">Course Completion Timeline</h3>
                     <div id="userTimelineChart" style="height: 300px;"></div>
@@ -617,6 +631,52 @@
                     </thead>
                     <tbody id="userModalBody" class="bg-white divide-y divide-gray-200"></tbody>
                 </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Details Modal -->
+    <div id="statusDetailsModal" class="modal">
+        <div class="modal-content" style="width: 90%; max-width: 1200px; max-height: 90vh; display: flex; flex-direction: column;">
+            <div class="modal-header" style="flex-shrink: 0;">
+                <div class="flex justify-between items-center">
+                    <h2 id="statusModalTitle" class="text-2xl font-bold text-gray-900">Loading...</h2>
+                    <button onclick="closeModal('statusDetailsModal')" class="text-gray-500 hover:text-gray-700 text-3xl leading-none">&times;</button>
+                </div>
+            </div>
+            
+            <!-- Loading Spinner -->
+            <div id="statusDetailsLoading" class="flex flex-col items-center justify-center py-12">
+                <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-600 mb-4"></div>
+                <p class="text-gray-600 font-medium">Loading status details...</p>
+            </div>
+            
+            <!-- View Toggle and Export Button (hidden initially) -->
+            <div id="statusDetailsToggle" class="hidden mb-4" style="flex-shrink: 0;">
+                <div class="flex items-center justify-between gap-4">
+                    <div class="flex items-center justify-center flex-1 bg-gray-100 rounded-lg p-1">
+                        <button id="statusCourseViewBtn" onclick="switchStatusView('course')"
+                            class="flex-1 px-4 py-2 rounded-md font-medium transition bg-white text-blue-600 shadow">
+                            Course View
+                        </button>
+                        <button id="statusUserViewBtn" onclick="switchStatusView('user')"
+                            class="flex-1 px-4 py-2 rounded-md font-medium transition text-gray-600">
+                            User View
+                        </button>
+                    </div>
+                    <button onclick="exportStatusToExcel()" 
+                        class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium flex items-center gap-2" style="margin-right:40rem;">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                        Export
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Content Area (hidden initially) -->
+            <div id="statusDetailsContent" class="hidden modal-table-container" style="flex: 1; overflow-y: auto;">
+                <!-- Content will be loaded here -->
             </div>
         </div>
     </div>
@@ -756,19 +816,28 @@
 
         function renderStatusChart(courses) {
             const chartDom = document.getElementById('chart-status');
-            if (charts.status) charts.status.dispose();
-            charts.status = echarts.init(chartDom);
+            if (charts.status) {
+                charts.status.dispose();
+            }
+            charts.status = echarts.init(chartDom, null, {
+                renderer: 'canvas',
+                useDirtyRect: false
+            });
             
             const totalCompleted = courses.reduce((sum, c) => sum + c.completed, 0);
             const totalInProgress = courses.reduce((sum, c) => sum + c.in_progress, 0);
             const totalNotStarted = courses.reduce((sum, c) => sum + c.not_started, 0);
+            const total = totalCompleted + totalInProgress + totalNotStarted;
             
             const option = {
                 tooltip: { 
-                    trigger: 'item', 
-                    formatter: '{a} <br/>{b}: {c} ({d}%)',
-                    confine: true,
-                    extraCssText: 'z-index: 9999; box-shadow: 0 2px 8px rgba(0,0,0,0.15);'
+                    trigger: 'item',
+                    formatter: function(params) {
+                        return `<strong>${params.name}</strong><br/>Count: ${params.value}<br/>Percentage: ${params.percent.toFixed(1)}%`;
+                    },
+                    confine: false,
+                    appendToBody: true,
+                    extraCssText: 'z-index: 99999 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.3); padding: 12px; border-radius: 6px; pointer-events: none;'
                 },
                 legend: { 
                     orient: 'vertical', 
@@ -778,14 +847,25 @@
                         fontSize: 12,
                         fontWeight: 500
                     },
-                    itemGap: 15
+                    itemGap: 15,
+                    formatter: function(name) {
+                        const item = option.series[0].data.find(d => d.name === name);
+                        if (item) {
+                            const percent = ((item.value / total) * 100).toFixed(1);
+                            return `${name}: ${percent}%`;
+                        }
+                        return name;
+                    }
                 },
                 series: [{
                     name: 'Status',
                     type: 'pie',
                     radius: ['40%', '70%'],  // Donut chart
                     center: ['60%', '50%'],
-                    avoidLabelOverlap: false,
+                    avoidLabelOverlap: true,
+                    hoverAnimation: true,
+                    hoverOffset: 10,
+                    selectedMode: false,
                     itemStyle: {
                         borderRadius: 8,
                         borderColor: '#fff',
@@ -796,15 +876,21 @@
                         shadowColor: 'rgba(0, 0, 0, 0.3)'
                     },
                     label: {
-                        show: false,
-                        position: 'center'
+                        show: true,
+                        position: 'inside',
+                        fontSize: 14,
+                        fontWeight: 'bold',
+                        color: '#fff',
+                        formatter: '{d}%',
+                        textShadowColor: 'rgba(0, 0, 0, 0.5)',
+                        textShadowBlur: 3
                     },
                     emphasis: {
                         label: {
                             show: true,
-                            fontSize: 20,
+                            fontSize: 18,
                             fontWeight: 'bold',
-                            formatter: '{d}%'
+                            color: '#fff'
                         },
                         itemStyle: {
                             shadowBlur: 30,
@@ -865,6 +951,22 @@
                 }]
             };
             charts.status.setOption(option);
+            
+            // Add click event handler
+            charts.status.on('click', function(params) {
+                if (params.componentType === 'series') {
+                    const statusName = params.name;
+                    // Don't show details for "Completed" - only for "In Progress" and "Not Started"
+                    if (statusName === 'In Progress' || statusName === 'Not Started') {
+                        showStatusDetails(statusName);
+                    }
+                }
+            });
+            
+            // Force chart to recalculate dimensions and enable interaction
+            setTimeout(() => {
+                charts.status.resize();
+            }, 100);
         }
 
         function renderUsersChart(users) {
@@ -959,6 +1061,12 @@
         }
 
         async function viewCourseDetails(courseName) {
+            // Show modal immediately with loading state
+            openModal('courseModal');
+            document.getElementById('courseModalLoading').style.display = 'flex';
+            document.getElementById('courseModalContent').style.display = 'none';
+            document.getElementById('courseModalTitle').textContent = 'Loading...';
+            
             try {
                 const response = await fetch(`/api/course/${encodeURIComponent(courseName)}`);
                 const data = await response.json();
@@ -976,13 +1084,22 @@
                     </tr>
                 `).join('');
                 
-                openModal('courseModal');
+                // Hide loading, show content
+                document.getElementById('courseModalLoading').style.display = 'none';
+                document.getElementById('courseModalContent').style.display = 'block';
             } catch (error) {
+                closeModal('courseModal');
                 alert('Error loading course details: ' + error.message);
             }
         }
 
         async function viewUserDetails(userEmail, userName) {
+            // Show modal immediately with loading state
+            openModal('userModal');
+            document.getElementById('userModalLoading').style.display = 'flex';
+            document.getElementById('userModalContent').style.display = 'none';
+            document.getElementById('userModalTitle').textContent = 'Loading...';
+            
             try {
                 const response = await fetch(`/api/user/${encodeURIComponent(userEmail)}`);
                 const data = await response.json();
@@ -998,6 +1115,10 @@
                         <td class="px-6 py-4 text-sm text-gray-500">${course.completion_date || 'N/A'}</td>
                     </tr>
                 `).join('');
+                
+                // Hide loading, show content
+                document.getElementById('userModalLoading').style.display = 'none';
+                document.getElementById('userModalContent').style.display = 'block';
                 
                 // Render timeline
                 const completedCourses = data.courses.filter(c => c.completion_date);
@@ -1025,9 +1146,8 @@
                         timelineChart.setOption(option);
                     }, 100);
                 }
-                
-                openModal('userModal');
             } catch (error) {
+                closeModal('userModal');
                 alert('Error loading user details: ' + error.message);
             }
         }
@@ -1040,6 +1160,364 @@
         function closeModal(modalId) {
             document.getElementById(modalId).classList.remove('active');
             document.body.classList.remove('modal-open');
+        }
+
+        // Status details modal
+        let currentStatusData = null;
+        let currentStatusView = 'course';
+
+        async function showStatusDetails(statusName) {
+            // Show modal immediately with loading state
+            openModal('statusDetailsModal');
+            document.getElementById('statusDetailsLoading').classList.remove('hidden');
+            document.getElementById('statusDetailsToggle').classList.add('hidden');
+            document.getElementById('statusDetailsContent').classList.add('hidden');
+            document.getElementById('statusModalTitle').textContent = 'Loading...';
+            
+            try {
+                // Fetch raw data
+                const response = await fetch('/api/raw-data');
+                const result = await response.json();
+                
+                if (!result.data) {
+                    throw new Error('No data received from server');
+                }
+                
+                currentStatusData = {
+                    statusName: statusName,
+                    allData: result.data
+                };
+                
+                // Set modal title
+                document.getElementById('statusModalTitle').textContent = `${statusName} - Details`;
+                
+                // Hide loading, show content
+                document.getElementById('statusDetailsLoading').classList.add('hidden');
+                document.getElementById('statusDetailsToggle').classList.remove('hidden');
+                document.getElementById('statusDetailsContent').classList.remove('hidden');
+                
+                // Display course view by default
+                switchStatusView('course');
+            } catch (error) {
+                console.error('Error loading status details:', error);
+                closeModal('statusDetailsModal');
+                alert('Error loading status details: ' + error.message);
+            }
+        }
+
+        function switchStatusView(view) {
+            if (!currentStatusData) return;
+            
+            currentStatusView = view;
+            const statusName = currentStatusData.statusName;
+            const allData = currentStatusData.allData;
+            
+            // Update toggle buttons
+            const courseBtn = document.getElementById('statusCourseViewBtn');
+            const userBtn = document.getElementById('statusUserViewBtn');
+            
+            if (view === 'course') {
+                courseBtn.classList.add('bg-white', 'text-blue-600', 'shadow');
+                courseBtn.classList.remove('text-gray-600');
+                userBtn.classList.remove('bg-white', 'text-blue-600', 'shadow');
+                userBtn.classList.add('text-gray-600');
+            } else {
+                userBtn.classList.add('bg-white', 'text-blue-600', 'shadow');
+                userBtn.classList.remove('text-gray-600');
+                courseBtn.classList.remove('bg-white', 'text-blue-600', 'shadow');
+                courseBtn.classList.add('text-gray-600');
+            }
+            
+            // Filter data based on status
+            let filteredData = [];
+            if (statusName === 'In Progress') {
+                filteredData = allData.filter(record => {
+                    const status = record.Course_Completion_Status || record.Activity_Status || '';
+                    const percentage = parseFloat(record.Course_Completion_Percentage || 0);
+                    return status === 'Current' || (percentage > 0 && percentage < 100);
+                });
+            } else if (statusName === 'Not Started') {
+                filteredData = allData.filter(record => {
+                    const status = record.Course_Completion_Status || record.Activity_Status || '';
+                    const percentage = parseFloat(record.Course_Completion_Percentage || 0);
+                    return status === 'Not Started' || percentage === 0;
+                });
+            }
+            
+            // Render based on view
+            const content = document.getElementById('statusDetailsContent');
+            if (view === 'course') {
+                content.innerHTML = renderCourseGroupedView(filteredData, statusName);
+            } else {
+                content.innerHTML = renderUserGroupedView(filteredData, statusName);
+            }
+        }
+
+        function renderCourseGroupedView(data, statusName) {
+            // Group by course
+            const courseMap = {};
+            data.forEach(record => {
+                const courseName = record.Activity_Name || record.Course_Name || 'Unknown Course';
+                if (!courseMap[courseName]) {
+                    courseMap[courseName] = [];
+                }
+                courseMap[courseName].push({
+                    userName: record.Participant_Name || 'Unknown',
+                    userEmail: record.User_Mail_ID || '',
+                    percentage: record.Course_Completion_Percentage || '0',
+                    status: record.Course_Completion_Status || record.Activity_Status || 'Not Started',
+                    completionDate: record['Course_Completion_Date_(YYYY-MM-DD)'] || ''
+                });
+            });
+            
+            if (Object.keys(courseMap).length === 0) {
+                return `<div class="p-8 text-center text-gray-500">No ${statusName.toLowerCase()} courses found</div>`;
+            }
+            
+            let html = '<div class="space-y-6 p-4">';
+            
+            Object.keys(courseMap).sort().forEach(courseName => {
+                const users = courseMap[courseName];
+                html += `
+                    <div class="border border-gray-200 rounded-lg overflow-hidden">
+                        <div class="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-4 py-3">
+                            <h3 class="font-bold text-lg">${courseName}</h3>
+                            <p class="text-sm opacity-90">${users.length} user(s) ${statusName.toLowerCase()}</p>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">User Name</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Progress</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                `;
+                
+                users.forEach(user => {
+                    const progress = parseFloat(user.percentage);
+                    const progressColor = progress >= 75 ? 'bg-green-500' : progress >= 50 ? 'bg-yellow-500' : 'bg-red-500';
+                    const statusColor = user.status === 'Completed' ? 'bg-green-100 text-green-800' : 
+                                       user.status === 'Current' ? 'bg-yellow-100 text-yellow-800' : 
+                                       'bg-gray-100 text-gray-800';
+                    
+                    html += `
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-4 py-3 text-sm text-gray-900">${user.userName}</td>
+                            <td class="px-4 py-3 text-sm text-gray-500">${user.userEmail}</td>
+                            <td class="px-4 py-3">
+                                <div class="flex items-center gap-2">
+                                    <div class="flex-1 bg-gray-200 rounded-full h-2">
+                                        <div class="${progressColor} h-2 rounded-full" style="width: ${progress}%"></div>
+                                    </div>
+                                    <span class="text-xs text-gray-600">${progress}%</span>
+                                </div>
+                            </td>
+                            <td class="px-4 py-3">
+                                <span class="px-2 py-1 text-xs rounded ${statusColor}">${user.status}</span>
+                            </td>
+                        </tr>
+                    `;
+                });
+                
+                html += `
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            return html;
+        }
+
+        function renderUserGroupedView(data, statusName) {
+            // Group by user
+            const userMap = {};
+            data.forEach(record => {
+                const userEmail = record.User_Mail_ID || 'unknown@email.com';
+                if (!userMap[userEmail]) {
+                    userMap[userEmail] = {
+                        name: record.Participant_Name || 'Unknown',
+                        courses: []
+                    };
+                }
+                userMap[userEmail].courses.push({
+                    courseName: record.Activity_Name || record.Course_Name || 'Unknown Course',
+                    percentage: record.Course_Completion_Percentage || '0',
+                    status: record.Course_Completion_Status || record.Activity_Status || 'Not Started',
+                    completionDate: record['Course_Completion_Date_(YYYY-MM-DD)'] || ''
+                });
+            });
+            
+            if (Object.keys(userMap).length === 0) {
+                return `<div class="p-8 text-center text-gray-500">No users with ${statusName.toLowerCase()} courses found</div>`;
+            }
+            
+            let html = '<div class="space-y-6 p-4">';
+            
+            Object.keys(userMap).sort().forEach(userEmail => {
+                const userData = userMap[userEmail];
+                html += `
+                    <div class="border border-gray-200 rounded-lg overflow-hidden">
+                        <div class="bg-gradient-to-r from-blue-500 to-cyan-600 text-white px-4 py-3">
+                            <h3 class="font-bold text-lg">${userData.name}</h3>
+                            <p class="text-sm opacity-90">${userEmail} - ${userData.courses.length} course(s) ${statusName.toLowerCase()}</p>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Course Name</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Progress</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                `;
+                
+                userData.courses.forEach(course => {
+                    const progress = parseFloat(course.percentage);
+                    const progressColor = progress >= 75 ? 'bg-green-500' : progress >= 50 ? 'bg-yellow-500' : 'bg-red-500';
+                    const statusColor = course.status === 'Completed' ? 'bg-green-100 text-green-800' : 
+                                       course.status === 'Current' ? 'bg-yellow-100 text-yellow-800' : 
+                                       'bg-gray-100 text-gray-800';
+                    
+                    html += `
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-4 py-3 text-sm text-gray-900">${course.courseName}</td>
+                            <td class="px-4 py-3">
+                                <div class="flex items-center gap-2">
+                                    <div class="flex-1 bg-gray-200 rounded-full h-2">
+                                        <div class="${progressColor} h-2 rounded-full" style="width: ${progress}%"></div>
+                                    </div>
+                                    <span class="text-xs text-gray-600">${progress}%</span>
+                                </div>
+                            </td>
+                            <td class="px-4 py-3">
+                                <span class="px-2 py-1 text-xs rounded ${statusColor}">${course.status}</span>
+                            </td>
+                        </tr>
+                    `;
+                });
+                
+                html += `
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            return html;
+        }
+
+        function exportStatusToExcel() {
+            if (!currentStatusData) return;
+            
+            const statusName = currentStatusData.statusName;
+            const allData = currentStatusData.allData;
+            
+            // Filter data based on status
+            let filteredData = [];
+            if (statusName === 'In Progress') {
+                filteredData = allData.filter(record => {
+                    const status = record.Course_Completion_Status || record.Activity_Status || '';
+                    const percentage = parseFloat(record.Course_Completion_Percentage || 0);
+                    return status === 'Current' || (percentage > 0 && percentage < 100);
+                });
+            } else if (statusName === 'Not Started') {
+                filteredData = allData.filter(record => {
+                    const status = record.Course_Completion_Status || record.Activity_Status || '';
+                    const percentage = parseFloat(record.Course_Completion_Percentage || 0);
+                    return status === 'Not Started' || percentage === 0;
+                });
+            }
+            
+            let csvContent = '';
+            let filename = '';
+            
+            if (currentStatusView === 'course') {
+                // Course View Export
+                filename = `${statusName.replace(' ', '_')}_by_Course.csv`;
+                
+                // Group by course
+                const courseMap = {};
+                filteredData.forEach(record => {
+                    const courseName = record.Activity_Name || record.Course_Name || 'Unknown Course';
+                    if (!courseMap[courseName]) {
+                        courseMap[courseName] = [];
+                    }
+                    courseMap[courseName].push({
+                        userName: record.Participant_Name || 'Unknown',
+                        userEmail: record.User_Mail_ID || '',
+                        percentage: record.Course_Completion_Percentage || '0',
+                        status: record.Course_Completion_Status || record.Activity_Status || 'Not Started',
+                        completionDate: record['Course_Completion_Date_(YYYY-MM-DD)'] || ''
+                    });
+                });
+                
+                // CSV Header
+                csvContent = 'Course Name,User Name,User Email,Progress %,Status,Completion Date\n';
+                
+                // CSV Data
+                Object.keys(courseMap).sort().forEach(courseName => {
+                    const users = courseMap[courseName];
+                    users.forEach(user => {
+                        csvContent += `"${courseName}","${user.userName}","${user.userEmail}",${user.percentage},"${user.status}","${user.completionDate}"\n`;
+                    });
+                });
+                
+            } else {
+                // User View Export
+                filename = `${statusName.replace(' ', '_')}_by_User.csv`;
+                
+                // Group by user
+                const userMap = {};
+                filteredData.forEach(record => {
+                    const userEmail = record.User_Mail_ID || 'unknown@email.com';
+                    if (!userMap[userEmail]) {
+                        userMap[userEmail] = {
+                            name: record.Participant_Name || 'Unknown',
+                            courses: []
+                        };
+                    }
+                    userMap[userEmail].courses.push({
+                        courseName: record.Activity_Name || record.Course_Name || 'Unknown Course',
+                        percentage: record.Course_Completion_Percentage || '0',
+                        status: record.Course_Completion_Status || record.Activity_Status || 'Not Started',
+                        completionDate: record['Course_Completion_Date_(YYYY-MM-DD)'] || ''
+                    });
+                });
+                
+                // CSV Header
+                csvContent = 'User Name,User Email,Course Name,Progress %,Status,Completion Date\n';
+                
+                // CSV Data
+                Object.keys(userMap).sort().forEach(userEmail => {
+                    const userData = userMap[userEmail];
+                    userData.courses.forEach(course => {
+                        csvContent += `"${userData.name}","${userEmail}","${course.courseName}",${course.percentage},"${course.status}","${course.completionDate}"\n`;
+                    });
+                });
+            }
+            
+            // Create download link
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            
+            link.setAttribute('href', url);
+            link.setAttribute('download', filename);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         }
 
         function sortTable(type, columnIndex) {

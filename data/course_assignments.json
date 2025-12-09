@@ -1,72 +1,16 @@
 {
   "assignments": [
     {
-      "id": 2,
-      "course_name": "Inspection, Care and Storage of Slings",
+      "id": 1,
+      "course_name": "Fire Extinguisher",
       "user_emails": [
-        "pankaj.negi@nelco.in"
-      ],
-      "deadline": "2025-12-10",
-      "created_date": "2025-12-06 13:44:29",
-      "created_by": "admin",
-      "last_modified": "2025-12-06 16:02:19"
-    },
-    {
-      "id": 3,
-      "course_name": "Principles of Accident Investigation",
-      "user_emails": [
-        "pankaj.negi@nelco.in"
-      ],
-      "deadline": "2025-12-20",
-      "created_date": "2025-12-06 13:45:27",
-      "created_by": "admin"
-    },
-    {
-      "id": 4,
-      "course_name": "Fatigue at Work",
-      "user_emails": [
-        "devendra.gangras@nelco.in",
-        "pankaj.negi@nelco.in"
-      ],
-      "deadline": "2025-12-30",
-      "created_date": "2025-12-06 14:50:21",
-      "created_by": "admin"
-    },
-    {
-      "id": 4,
-      "course_name": "Understanding Hazards and Risks",
-      "user_emails": [
-        "priyabrata.mohanty@nelco.in",
-        "pranjal.gogoi@nelco.in",
-        "test@example.com"
-      ],
-      "deadline": "2024-12-31",
-      "created_date": "2025-12-06 15:23:00",
-      "created_by": "admin"
-    },
-    {
-      "id": 5,
-      "course_name": "Safe Driving at Work",
-      "user_emails": [
-        "shubham.sindhwal@nelco.in",
+        "bhaskar.chandola@nelco.in",
         "pankaj.negi@nelco.in",
-        "sayan.ghosh@nelco.in"
+        "sayak.sen@nelco.in"
       ],
-      "deadline": "2025-12-08",
-      "created_date": "2025-12-06 16:06:37",
-      "created_by": "admin",
-      "last_modified": "2025-12-06 16:49:53"
-    },
-    {
-      "id": 6,
-      "course_name": "Ergonomics",
-      "user_emails": [
-        "pankaj.negi@nelco.in"
-      ],
-      "deadline": "2025-12-08",
-      "created_date": "2025-12-06 19:40:57",
-      "created_by": "admin",
-      "last_modified": "2025-12-06 19:45:44"
+      "deadline": "2025-12-12",
+      "created_date": "2025-12-09 13:54:38",
+      "created_by": "admin"
     }
   ]
 }
