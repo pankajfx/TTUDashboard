@@ -473,7 +473,7 @@
             </div>
             <!-- Charts Row 1 - Two Charts -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                <div class="card p-6 relative">
+                <div class="card p-6 relative" style="overflow:auto;">
                     <h2 class="text-lg font-semibold text-gray-900 mb-4">Top Courses by Enrollment</h2>
                     <div class="chart-controls">
                         <button class="toggle-btn active" onclick="toggleChartView('enrollment', 'top10')">Top 10</button>
@@ -482,7 +482,7 @@
                     </div>
                     <div id="chart-enrollment" style="height: 400px;"></div>
                 </div>
-                <div class="card p-6 relative">
+                <div class="card p-6 relative" style="overflow:auto;">
                     <h2 class="text-lg font-semibold text-gray-900 mb-4">Overall Completion Status</h2>
                     <div class="chart-controls">
                         <button class="icon-btn" onclick="zoomChart('status')" title="Zoom">🔍</button>
@@ -493,7 +493,7 @@
 
             <!-- Charts Row 2 - Full Width -->
             <div class="mb-8">
-                <div class="card p-6 relative">
+                <div class="card p-6 relative" style="overflow:auto;">
                     <h2 class="text-lg font-semibold text-gray-900 mb-4">User Progress Overview</h2>
                     <div class="chart-controls">
                         <button class="toggle-btn active" onclick="toggleChartView('users', 'top10')">Top 10</button>
