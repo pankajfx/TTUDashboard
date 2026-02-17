@@ -843,7 +843,7 @@ def get_status():
         cache_info['cache_timestamp'] = _cache_timestamp.strftime('%Y-%m-%d %H:%M:%S')
         cache_info['cache_age_seconds'] = cache_age_seconds
         cache_info['cache_age_readable'] = ' '.join(age_parts)
-        cache_info['cached_at_formatted'] = _cache_timestamp.strftime('%d %B %Y')
+        cache_info['cached_at_formatted'] = _cache_timestamp.strftime('%d %B %Y at %I:%M %p')
     
     return jsonify({
         'using_local_data': USE_LOCAL_DATA,
