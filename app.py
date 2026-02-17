@@ -12,6 +12,8 @@ from functools import wraps
 from email_service import send_course_assignment_email, send_deadline_reminder_email, send_course_removal_email
 import openpyxl
 from io import BytesIO
+import threading
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -22,6 +24,18 @@ app.secret_key = 'your-secret-key-change-this-to-something-random-and-secure-123
 
 API_URL = "https://www3.tcsion.com/iONBizServices/iONWebService?servicekey=WaJkcnPwTLXzm%2FQICFcn3w%3D%3D&s=4CnZ%2FgPXtzK8efa1RmpmLg%3D%3D&u=TIX8NflllNXow1Ic/ZoBmze/jwyVQjfsnDydzQqFPGDD79kH58CkQVDgHATBFfbr"
 USE_LOCAL_DATA = False  # Set to False to use live API (URL confirmed working in test_api_connection.py)
+
+# API timeout configuration (in seconds)
+# The API typically takes 3+ minutes to respond, so set timeout accordingly
+API_TIMEOUT = 200  # 200 seconds = 3 minutes 20 seconds
+
+# Cache configuration
+AUTO_REFRESH_INTERVAL_MINUTES = 5  # Auto-refresh cache every 15 minutes
+CACHE_FILE = 'data/api_cache.json'  # Persistent cache file
+_data_cache = None
+_cache_timestamp = None
+_cache_lock = threading.Lock()
+_refresh_in_progress = False
 
 # Secure password storage (hashed)
 # To add users: generate_password_hash('your_password')
@@ -799,23 +813,211 @@ def index():
 @app.route('/api/status')
 @login_required
 def get_status():
+    """Get system status including cache information"""
+    cache_info = {
+        'cached': _data_cache is not None,
+        'cache_timestamp': None,
+        'cache_age_seconds': None,
+        'cache_age_readable': None,
+        'refresh_in_progress': _refresh_in_progress
+    }
+    
+    if _cache_timestamp is not None:
+        now = datetime.now()
+        cache_age = now - _cache_timestamp
+        cache_age_seconds = int(cache_age.total_seconds())
+        
+        # Calculate readable age
+        days = cache_age.days
+        hours = cache_age.seconds // 3600
+        minutes = (cache_age.seconds % 3600) // 60
+        
+        age_parts = []
+        if days > 0:
+            age_parts.append(f"{days} day{'s' if days != 1 else ''}")
+        if hours > 0:
+            age_parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+        if minutes > 0 or len(age_parts) == 0:
+            age_parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+        
+        cache_info['cache_timestamp'] = _cache_timestamp.strftime('%Y-%m-%d %H:%M:%S')
+        cache_info['cache_age_seconds'] = cache_age_seconds
+        cache_info['cache_age_readable'] = ' '.join(age_parts)
+        cache_info['cached_at_formatted'] = _cache_timestamp.strftime('%d %B %Y')
+    
     return jsonify({
         'using_local_data': USE_LOCAL_DATA,
-        'data_source': 'Local JSON File' if USE_LOCAL_DATA else 'TCS iON API'
+        'data_source': 'Local JSON File' if USE_LOCAL_DATA else 'TCS iON API',
+        'api_timeout_seconds': API_TIMEOUT,
+        'auto_refresh_interval_minutes': AUTO_REFRESH_INTERVAL_MINUTES,
+        'cache': cache_info
     })
 
+@app.route('/api/refresh-cache', methods=['POST'])
+@login_required
+def refresh_cache_endpoint():
+    """Trigger manual cache refresh (non-blocking)"""
+    global _refresh_in_progress
+    
+    if USE_LOCAL_DATA:
+        return jsonify({'error': 'Cache refresh not available in local data mode'}), 400
+    
+    with _cache_lock:
+        if _refresh_in_progress:
+            return jsonify({
+                'message': 'Cache refresh already in progress',
+                'refresh_in_progress': True
+            }), 202
+    
+    # Start refresh in background thread
+    threading.Thread(target=refresh_cache_background, daemon=True).start()
+    
+    logger.info(f"Manual cache refresh triggered by {session.get('username')}")
+    
+    return jsonify({
+        'message': 'Cache refresh started in background',
+        'refresh_in_progress': True
+    }), 202
+
+def save_cache_to_file(data, timestamp):
+    """Save cache data and timestamp to file"""
+    try:
+        cache_data = {
+            'data': data,
+            'timestamp': timestamp.isoformat(),
+            'cached_at_readable': timestamp.strftime('%Y-%m-%d %H:%M:%S')
+        }
+        with open(CACHE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(cache_data, f, indent=2, ensure_ascii=False)
+        logger.info(f"Cache saved to file: {CACHE_FILE}")
+        return True
+    except Exception as e:
+        logger.error(f"Error saving cache to file: {e}")
+        return False
+
+def load_cache_from_file():
+    """Load cache data and timestamp from file"""
+    try:
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+                timestamp = datetime.fromisoformat(cache_data['timestamp'])
+                logger.info(f"Cache loaded from file (cached at: {cache_data['cached_at_readable']})")
+                return cache_data['data'], timestamp
+    except Exception as e:
+        logger.error(f"Error loading cache from file: {e}")
+    return None, None
+
+def fetch_fresh_data_from_api():
+    """Fetch fresh data from API (blocking call)"""
+    logger.info("Fetching fresh data from API (this may take 3+ minutes)...")
+    response = requests.get(API_URL, timeout=API_TIMEOUT)
+    response.raise_for_status()
+    data = response.json()
+    logger.info(f"Successfully fetched {len(data)} records from API")
+    return data
+
+def refresh_cache_background():
+    """Refresh cache in background (called by scheduler)"""
+    global _data_cache, _cache_timestamp, _refresh_in_progress
+    
+    with _cache_lock:
+        if _refresh_in_progress:
+            logger.info("Cache refresh already in progress, skipping...")
+            return
+        _refresh_in_progress = True
+    
+    try:
+        logger.info("Background cache refresh started...")
+        data = fetch_fresh_data_from_api()
+        now = datetime.now()
+        
+        with _cache_lock:
+            _data_cache = data
+            _cache_timestamp = now
+            save_cache_to_file(data, now)
+        
+        logger.info(f"Background cache refresh completed at {now.strftime('%Y-%m-%d %H:%M:%S')}")
+    except Exception as e:
+        logger.error(f"Error in background cache refresh: {e}")
+    finally:
+        with _cache_lock:
+            _refresh_in_progress = False
+
+def cache_refresh_scheduler():
+    """Background thread that refreshes cache every N minutes"""
+    logger.info(f"Cache refresh scheduler started (interval: {AUTO_REFRESH_INTERVAL_MINUTES} minutes)")
+    
+    while True:
+        try:
+            time.sleep(AUTO_REFRESH_INTERVAL_MINUTES * 60)
+            if not USE_LOCAL_DATA:
+                refresh_cache_background()
+        except Exception as e:
+            logger.error(f"Error in cache scheduler: {e}")
+
+def initialize_cache():
+    """Initialize cache on server startup"""
+    global _data_cache, _cache_timestamp
+    
+    logger.info("Initializing cache system...")
+    
+    if USE_LOCAL_DATA:
+        logger.info("Using local data mode - cache system disabled")
+        return
+    
+    # Try to load from file first
+    data, timestamp = load_cache_from_file()
+    
+    if data and timestamp:
+        with _cache_lock:
+            _data_cache = data
+            _cache_timestamp = timestamp
+        
+        # Check if cache is too old
+        age_minutes = (datetime.now() - timestamp).total_seconds() / 60
+        if age_minutes > AUTO_REFRESH_INTERVAL_MINUTES:
+            logger.info(f"Cache is {age_minutes:.1f} minutes old, triggering refresh...")
+            threading.Thread(target=refresh_cache_background, daemon=True).start()
+        else:
+            logger.info(f"Cache is {age_minutes:.1f} minutes old, still valid")
+    else:
+        logger.info("No valid cache found, fetching initial data...")
+        threading.Thread(target=refresh_cache_background, daemon=True).start()
+    
+    # Start background scheduler
+    scheduler_thread = threading.Thread(target=cache_refresh_scheduler, daemon=True)
+    scheduler_thread.start()
+    logger.info("Cache system initialized successfully")
+
 def load_data():
-    """Load data from API or local file"""
+    """Load data from cache (instant) or local file"""
+    global _data_cache, _cache_timestamp
+    
     if USE_LOCAL_DATA:
         # Load from local JSON file
         json_path = os.path.join(os.path.dirname(__file__), 'Response Sample.json')
         with open(json_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     else:
-        # Load from API
-        response = requests.get(API_URL, timeout=30)
-        response.raise_for_status()
-        return response.json()
+        # Return cached data (should always be available after initialization)
+        with _cache_lock:
+            if _data_cache is None:
+                # Fallback: try to load from file if cache not initialized
+                data, timestamp = load_cache_from_file()
+                if data:
+                    _data_cache = data
+                    _cache_timestamp = timestamp
+                else:
+                    # Last resort: fetch synchronously (will block)
+                    logger.warning("No cache available, fetching synchronously...")
+                    data = fetch_fresh_data_from_api()
+                    now = datetime.now()
+                    _data_cache = data
+                    _cache_timestamp = now
+                    save_cache_to_file(data, now)
+            
+            return _data_cache
 
 @app.route('/api/data')
 @login_required
@@ -1040,4 +1242,6 @@ def get_user_details(user_email):
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
+    # Initialize cache system on startup
+    initialize_cache()
     app.run(debug=True, port=5000)

@@ -233,6 +233,48 @@
       "name": "",
       "source": "manual",
       "added_date": "2025-12-09 13:54:38"
+    },
+    {
+      "email": "ninad.pimple@nelco.in",
+      "name": "NINAD",
+      "source": "api",
+      "added_date": "2026-02-17 16:33:59"
+    },
+    {
+      "email": "abhinab.das@nelco.in",
+      "name": "Abhinab",
+      "source": "api",
+      "added_date": "2026-02-17 16:33:59"
+    },
+    {
+      "email": "sandeep.dwivedi@nelco.in",
+      "name": "Sandeep",
+      "source": "api",
+      "added_date": "2026-02-17 16:33:59"
+    },
+    {
+      "email": "shailesh.bangera@nelco.in",
+      "name": "Shailesh",
+      "source": "api",
+      "added_date": "2026-02-17 16:33:59"
+    },
+    {
+      "email": "amit.pal@nelco.in",
+      "name": "Amit",
+      "source": "api",
+      "added_date": "2026-02-17 16:33:59"
+    },
+    {
+      "email": "rajarshi.bhaumik@nelco.in",
+      "name": "RAJARSHI",
+      "source": "api",
+      "added_date": "2026-02-17 16:33:59"
+    },
+    {
+      "email": "vaibhav.c@nelco.in",
+      "name": "Vaibhav",
+      "source": "api",
+      "added_date": "2026-02-17 16:33:59"
     }
   ]
 }
