@@ -253,8 +253,9 @@ POST /api/refresh-cache
 3. Button shows "Updating Data..." with spinner
 4. UI polls status every 3 seconds
 5. After 3+ minutes, refresh completes
-6. Page reloads automatically
-7. User sees fresh data
+6. Dashboard updates automatically (no page reload)
+7. Success notification appears
+8. User sees fresh data without interruption
 ```
 
 ### Scenario 5: Background Auto-Refresh

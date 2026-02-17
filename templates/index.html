@@ -197,6 +197,21 @@
             animation: spin 1s linear infinite;
         }
         
+        @keyframes fade-in {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .animate-fade-in {
+            animation: fade-in 0.3s ease-out;
+        }
+        
         .sortable { 
             cursor: pointer; 
             user-select: none;
@@ -437,29 +452,6 @@
         </div>
     </header>
 
-    <!-- Cache Status and Refresh Button -->
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-        <div class="card p-4 flex items-center justify-between">
-            <div class="flex items-center space-x-3">
-                <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                </svg>
-                <div>
-                    <p class="text-sm font-medium text-gray-900" id="cache-status-text">
-                        Loading cache status...
-                    </p>
-                    <p class="text-xs text-gray-500" id="cache-age-text"></p>
-                </div>
-            </div>
-            <button id="refresh-btn" onclick="refreshData()" class="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg hover:from-blue-600 hover:to-purple-700 transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
-                <svg id="refresh-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-                </svg>
-                <span id="refresh-text">Get Latest Data</span>
-            </button>
-        </div>
-    </div>
-
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div id="loading" class="text-center py-12">
             <div class="loading mx-auto"></div>
@@ -467,8 +459,8 @@
         </div>
 
         <div id="dashboard" class="hidden">
-            <!-- KPI Cards -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <!-- KPI Cards - 5 tiles in one row on large screens -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 xl:grid-cols-5 gap-6 mb-8">
                 <div class="card p-6">
                     <div class="flex items-center justify-between">
                         <div><p class="text-sm font-medium text-gray-600">Total Courses</p>
@@ -495,6 +487,28 @@
                         <div><p class="text-sm font-medium text-gray-600">Completion Rate</p>
                             <p id="kpi-completion" class="text-3xl font-bold text-gray-900 mt-2">-</p></div>
                         <div class="bg-yellow-100 p-3 rounded-full"><svg class="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg></div>
+                    </div>
+                </div>
+                <!-- Cache Status & Refresh Tile -->
+                <div class="card p-6">
+                    <div class="flex flex-col h-full justify-between">
+                        <div class="flex items-start space-x-2 mb-3">
+                            <svg class="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-xs font-medium text-gray-600 leading-tight" id="cache-status-text">
+                                    Loading...
+                                </p>
+                                <p class="text-xs text-gray-500 mt-0.5" id="cache-age-text"></p>
+                            </div>
+                        </div>
+                        <button id="refresh-btn" onclick="refreshData()" class="w-full flex items-center justify-center space-x-2 px-3 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-sm font-medium rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
+                            <svg id="refresh-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                            <span id="refresh-text" class="text-xs">Get Latest Data</span>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -763,60 +777,8 @@
             }
         }
 
-        // Refresh data function
-        async function refreshData() {
-            const refreshBtn = document.getElementById('refresh-btn');
-            const refreshIcon = document.getElementById('refresh-icon');
-            const refreshText = document.getElementById('refresh-text');
-            
-            try {
-                refreshBtn.disabled = true;
-                refreshIcon.classList.add('refresh-spinning');
-                refreshText.textContent = 'Updating Data...';
-                
-                const response = await fetch('/api/refresh-cache', { method: 'POST' });
-                const data = await response.json();
-                
-                if (response.ok) {
-                    // Poll for completion
-                    const pollInterval = setInterval(async () => {
-                        const statusResponse = await fetch('/api/status');
-                        const statusData = await statusResponse.json();
-                        
-                        if (!statusData.cache.refresh_in_progress) {
-                            clearInterval(pollInterval);
-                            
-                            // Reload the page to show fresh data
-                            alert('Data updated successfully! The page will now reload.');
-                            window.location.reload();
-                        } else {
-                            // Update status while refreshing
-                            loadCacheStatus();
-                        }
-                    }, 3000); // Poll every 3 seconds
-                } else {
-                    alert('Error: ' + data.error);
-                    refreshBtn.disabled = false;
-                    refreshIcon.classList.remove('refresh-spinning');
-                    refreshText.textContent = 'Get Latest Data';
-                }
-            } catch (error) {
-                console.error('Error refreshing data:', error);
-                alert('Error refreshing data. Please try again.');
-                refreshBtn.disabled = false;
-                refreshIcon.classList.remove('refresh-spinning');
-                refreshText.textContent = 'Get Latest Data';
-            }
-        }
-
-        // Load data on page load
-        window.addEventListener('DOMContentLoaded', async () => {
-            // Load cache status first
-            loadCacheStatus();
-            
-            // Update cache status every 30 seconds
-            setInterval(loadCacheStatus, 30000);
-            
+        // Load dashboard data (reusable function)
+        async function loadDashboardData() {
             try {
                 const response = await fetch('/api/summary');
                 const data = await response.json();
@@ -841,9 +803,94 @@
                     renderStatusChart(coursesData);
                     renderUsersChart(usersData);
                 }, 100);
+                
+                return true;
             } catch (error) {
                 document.getElementById('loading').innerHTML = `<div class="text-red-600"><p class="text-xl font-semibold">Error loading data</p><p class="mt-2">${error.message}</p></div>`;
+                return false;
             }
+        }
+
+        // Refresh data function
+        async function refreshData() {
+            const refreshBtn = document.getElementById('refresh-btn');
+            const refreshIcon = document.getElementById('refresh-icon');
+            const refreshText = document.getElementById('refresh-text');
+            
+            try {
+                refreshBtn.disabled = true;
+                refreshIcon.classList.add('refresh-spinning');
+                refreshText.textContent = 'Updating Data...';
+                
+                const response = await fetch('/api/refresh-cache', { method: 'POST' });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // Poll for completion
+                    const pollInterval = setInterval(async () => {
+                        const statusResponse = await fetch('/api/status');
+                        const statusData = await statusResponse.json();
+                        
+                        if (!statusData.cache.refresh_in_progress) {
+                            clearInterval(pollInterval);
+                            
+                            // Reload data without page refresh
+                            await loadDashboardData();
+                            
+                            // Update cache status
+                            await loadCacheStatus();
+                            
+                            // Re-enable button
+                            refreshBtn.disabled = false;
+                            refreshIcon.classList.remove('refresh-spinning');
+                            refreshText.textContent = 'Get Latest Data';
+                            
+                            // Show success notification (optional)
+                            showNotification('Data updated successfully!');
+                        } else {
+                            // Update status while refreshing
+                            loadCacheStatus();
+                        }
+                    }, 3000); // Poll every 3 seconds
+                } else {
+                    alert('Error: ' + data.error);
+                    refreshBtn.disabled = false;
+                    refreshIcon.classList.remove('refresh-spinning');
+                    refreshText.textContent = 'Get Latest Data';
+                }
+            } catch (error) {
+                console.error('Error refreshing data:', error);
+                alert('Error refreshing data. Please try again.');
+                refreshBtn.disabled = false;
+                refreshIcon.classList.remove('refresh-spinning');
+                refreshText.textContent = 'Get Latest Data';
+            }
+        }
+        
+        // Show notification (simple toast)
+        function showNotification(message) {
+            const notification = document.createElement('div');
+            notification.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in';
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                notification.style.transition = 'opacity 0.5s';
+                setTimeout(() => notification.remove(), 500);
+            }, 3000);
+        }
+
+        // Load data on page load
+        window.addEventListener('DOMContentLoaded', async () => {
+            // Load cache status first
+            loadCacheStatus();
+            
+            // Update cache status every 30 seconds
+            setInterval(loadCacheStatus, 30000);
+            
+            // Load dashboard data
+            await loadDashboardData();
         });
 
         function renderTable(type, data) {

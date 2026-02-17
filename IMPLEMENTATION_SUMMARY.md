@@ -163,11 +163,15 @@ User clicks "Get Latest Data":
    ↓
 5. When refresh_in_progress = false:
    ↓
-6. Show success alert
+6. Reload dashboard data (no page reload)
    ↓
-7. Reload page
+7. Update cache status display
    ↓
-8. User sees fresh data
+8. Show success notification
+   ↓
+9. Re-enable button
+   ↓
+10. User sees fresh data (seamless update)
 ```
 
 ---

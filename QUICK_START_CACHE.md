@@ -38,8 +38,9 @@ Navigate to: `http://localhost:5000`
 Click **"Get Latest Data"** button when you want fresh data:
 - Button shows "Updating Data..." with spinning icon
 - Takes 3+ minutes (API call in background)
-- Page reloads automatically when done
-- Shows fresh data
+- Dashboard updates automatically when done (no page reload!)
+- Shows success notification
+- You can continue working during the update
 
 ---
 
