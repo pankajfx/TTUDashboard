@@ -106,7 +106,7 @@ def send_course_assignment_email(user_email, user_name, course_name, deadline):
         /* Base styles */
         body {{ 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6; 
+            line-height: 1.5; 
             color: #333333; 
             margin: 0; 
             padding: 0;
@@ -115,60 +115,60 @@ def send_course_assignment_email(user_email, user_name, course_name, deadline):
         
         .email-container {{ 
             max-width: 600px; 
-            margin: 20px auto; 
+            margin: 15px auto; 
             background: #ffffff;
-            border-radius: 12px;
+            border-radius: 8px;
             overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }}
         
         .header {{ 
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
             color: #ffffff; 
-            padding: 30px 20px;
+            padding: 20px 15px;
             text-align: center;
         }}
         
         .header-icon {{
-            font-size: 48px;
-            margin-bottom: 10px;
+            font-size: 36px;
+            margin-bottom: 8px;
         }}
         
         .header h1 {{ 
             margin: 0; 
-            font-size: 24px; 
+            font-size: 22px; 
             font-weight: 600;
-            color: #ffffff;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
         }}
         
         .content {{ 
-            padding: 30px 25px;
+            padding: 20px 20px;
             background: #ffffff;
         }}
         
         .greeting {{
-            font-size: 16px;
+            font-size: 15px;
             color: #333333;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }}
         
         .message-box {{
-            background: #f8f9fa;
+            background: #f0f4ff;
             border-left: 4px solid #667eea;
-            padding: 15px 20px;
-            margin: 20px 0;
+            padding: 12px 15px;
+            margin: 15px 0;
             border-radius: 4px;
         }}
         
         .details-table {{ 
             width: 100%; 
-            margin: 25px 0;
+            margin: 20px 0;
             border-collapse: collapse;
             background: #ffffff;
         }}
         
         .details-table td {{ 
-            padding: 12px 15px;
+            padding: 10px 12px;
             border-bottom: 1px solid #e9ecef;
         }}
         
@@ -191,31 +191,31 @@ def send_course_assignment_email(user_email, user_name, course_name, deadline):
             display: inline-block;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: #ffffff !important;
-            padding: 14px 32px;
+            padding: 12px 28px;
             text-decoration: none;
             border-radius: 6px;
             font-weight: 600;
-            margin: 20px 0;
+            margin: 15px 0;
             text-align: center;
         }}
         
         .footer {{
-            padding: 20px 25px;
+            padding: 15px 20px;
             background: #f8f9fa;
             border-top: 1px solid #e9ecef;
             text-align: center;
         }}
         
         .footer-text {{
-            font-size: 13px;
+            font-size: 12px;
             color: #6c757d;
-            line-height: 1.5;
-            margin: 5px 0;
+            line-height: 1.4;
+            margin: 4px 0;
         }}
         
         .signature {{
-            margin-top: 15px;
-            font-size: 14px;
+            margin-top: 12px;
+            font-size: 13px;
             color: #495057;
             font-weight: 500;
         }}
@@ -223,26 +223,21 @@ def send_course_assignment_email(user_email, user_name, course_name, deadline):
         /* Mobile responsive */
         @media only screen and (max-width: 600px) {{
             .email-container {{ margin: 10px; }}
-            .content {{ padding: 20px 15px; }}
-            .header {{ padding: 25px 15px; }}
+            .content {{ padding: 15px 12px; }}
+            .header {{ padding: 18px 12px; }}
             .header h1 {{ font-size: 20px; }}
-            .cta-button {{ padding: 12px 24px; font-size: 14px; }}
+            .cta-button {{ padding: 10px 22px; font-size: 14px; }}
         }}
     </style>
 </head>
 <body>
     <div class="email-container">
         <div class="header">
-            <div class="header-icon">📚</div>
-            <h1>New Course Assignment</h1>
+            <div class="header-icon">📚 <span class="label" style="white-space:nowrap; font-size:18px;">New Course Assignment </span></div>
         </div>
-        
-        <div class="content">
-            <p class="greeting">Dear {user_name},</p>
-            
             <div class="message-box">
-                <p style="margin: 0; font-size: 15px;">
-                    A new course has been assigned to you as part of our Safety & Health Excellence program.
+                <p style="margin: 0; font-size: 14px;">
+                    <p style="font-weight:600">Dear {user_name},</p> <p>A new course has been assigned to you as part of our Safety & Health Excellence program. Kindly ignore if already completed.</p>
                 </p>
             </div>
             
@@ -257,14 +252,13 @@ def send_course_assignment_email(user_email, user_name, course_name, deadline):
                 </tr>
             </table>
             
-            <p style="margin: 20px 0; font-size: 15px; color: #495057;">
+            <p style="margin: 15px 0; font-size: 14px; color: #495057;">
                 Please log in to the Tata Tommorrow University portal to access your course materials and begin your learning journey.
             </p>
             
             <center>
                 <a href="#" class="cta-button">Access Course Portal</a>
             </center>
-        </div>
         
         <div class="footer">
             <p class="signature">
@@ -282,7 +276,7 @@ def send_course_assignment_email(user_email, user_name, course_name, deadline):
     # Plain text fallback template
     body_text = f"""Dear {user_name},
 
-A new course has been assigned to you as part of our Safety & Health Excellence program.
+A new course has been assigned to you as part of our Safety & Health Excellence program. Kindly ignore if already completed.
 
 Course Details:
 📖 Course Name: {course_name}
@@ -327,7 +321,7 @@ def send_deadline_reminder_email(user_email, user_name, course_name, deadline, d
         
         body {{ 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6; 
+            line-height: 1.5; 
             color: #333333; 
             margin: 0; 
             padding: 0;
@@ -336,65 +330,66 @@ def send_deadline_reminder_email(user_email, user_name, course_name, deadline, d
         
         .email-container {{ 
             max-width: 600px; 
-            margin: 20px auto; 
+            margin: 15px auto; 
             background: #ffffff;
-            border-radius: 12px;
+            border-radius: 8px;
             overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }}
         
         .header {{ 
             background: linear-gradient(135deg, {urgency_color} 0%, #dc2626 100%); 
             color: #ffffff; 
-            padding: 30px 20px;
+            padding: 20px 15px;
             text-align: center;
         }}
         
         .header-icon {{
-            font-size: 48px;
-            margin-bottom: 10px;
+            font-size: 36px;
+            margin-bottom: 8px;
         }}
         
         .header h1 {{ 
             margin: 0; 
-            font-size: 24px; 
+            font-size: 22px; 
             font-weight: 600;
             color: #ffffff;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
         }}
         
         .urgency-badge {{ 
             background: rgba(255, 255, 255, 0.3);
             color: #ffffff;
-            padding: 6px 16px;
+            padding: 5px 14px;
             border-radius: 20px;
             display: inline-block;
             font-weight: 600;
-            font-size: 13px;
-            margin-top: 10px;
+            font-size: 12px;
+            margin-top: 8px;
         }}
         
         .content {{ 
-            padding: 30px 25px;
+            padding: 20px 20px;
             background: #ffffff;
         }}
         
         .alert-box {{
             background: #fff3cd;
             border-left: 4px solid {urgency_color};
-            padding: 15px 20px;
-            margin: 20px 0;
+            padding: 12px 15px;
+            margin: 15px 0;
             border-radius: 4px;
         }}
         
         .details-table {{ 
             width: 100%; 
-            margin: 25px 0;
+            margin: 20px 0;
             border-collapse: collapse;
             background: #ffffff;
         }}
         
         .details-table td {{ 
-            padding: 12px 15px;
+            padding: 10px 12px;
             border-bottom: 1px solid #e9ecef;
         }}
         
@@ -416,34 +411,34 @@ def send_deadline_reminder_email(user_email, user_name, course_name, deadline, d
         .days-remaining {{
             color: {urgency_color};
             font-weight: 700;
-            font-size: 20px;
+            font-size: 18px;
         }}
         
         .footer {{
-            padding: 20px 25px;
+            padding: 15px 20px;
             background: #f8f9fa;
             border-top: 1px solid #e9ecef;
             text-align: center;
         }}
         
         .signature {{
-            margin-top: 15px;
-            font-size: 14px;
+            margin-top: 12px;
+            font-size: 13px;
             color: #495057;
             font-weight: 500;
         }}
         
         .footer-text {{
-            font-size: 13px;
+            font-size: 12px;
             color: #6c757d;
-            line-height: 1.5;
-            margin: 5px 0;
+            line-height: 1.4;
+            margin: 4px 0;
         }}
         
         @media only screen and (max-width: 600px) {{
             .email-container {{ margin: 10px; }}
-            .content {{ padding: 20px 15px; }}
-            .header {{ padding: 25px 15px; }}
+            .content {{ padding: 15px 12px; }}
+            .header {{ padding: 18px 12px; }}
             .header h1 {{ font-size: 20px; }}
         }}
     </style>
@@ -457,10 +452,10 @@ def send_deadline_reminder_email(user_email, user_name, course_name, deadline, d
         </div>
         
         <div class="content">
-            <p style="font-size: 16px; color: #333333; margin-bottom: 20px;">Dear {user_name},</p>
+            <p style="font-size: 15px; color: #333333; margin-bottom: 15px;">Dear {user_name},</p>
             
             <div class="alert-box">
-                <p style="margin: 0; font-size: 15px; font-weight: 600;">
+                <p style="margin: 0; font-size: 14px; font-weight: 600;">
                     ⚠️ Your course deadline is approaching!
                 </p>
             </div>
@@ -480,7 +475,7 @@ def send_deadline_reminder_email(user_email, user_name, course_name, deadline, d
                 </tr>
             </table>
             
-            <p style="margin: 20px 0; font-size: 15px; color: #495057;">
+            <p style="margin: 15px 0; font-size: 14px; color: #495057;">
                 Please complete this course before the deadline to ensure your progress is recorded and compliance requirements are met.
             </p>
         </div>
@@ -546,7 +541,7 @@ def send_course_removal_email(user_email, user_name, course_name):
         
         body {{ 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6; 
+            line-height: 1.5; 
             color: #333333; 
             margin: 0; 
             padding: 0;
@@ -555,70 +550,71 @@ def send_course_removal_email(user_email, user_name, course_name):
         
         .email-container {{ 
             max-width: 600px; 
-            margin: 20px auto; 
+            margin: 15px auto; 
             background: #ffffff;
-            border-radius: 12px;
+            border-radius: 8px;
             overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }}
         
         .header {{ 
             background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%); 
             color: #ffffff; 
-            padding: 30px 20px;
+            padding: 20px 15px;
             text-align: center;
         }}
         
         .header-icon {{
-            font-size: 48px;
-            margin-bottom: 10px;
+            font-size: 36px;
+            margin-bottom: 8px;
         }}
         
         .header h1 {{ 
             margin: 0; 
-            font-size: 24px; 
+            font-size: 22px; 
             font-weight: 600;
             color: #ffffff;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
         }}
         
         .content {{ 
-            padding: 30px 25px;
+            padding: 20px 20px;
             background: #ffffff;
         }}
         
         .info-box {{ 
             background: #f3f4f6;
             border-left: 4px solid #6b7280;
-            padding: 15px 20px;
-            margin: 20px 0;
+            padding: 12px 15px;
+            margin: 15px 0;
             border-radius: 4px;
         }}
         
         .footer {{
-            padding: 20px 25px;
+            padding: 15px 20px;
             background: #f8f9fa;
             border-top: 1px solid #e9ecef;
             text-align: center;
         }}
         
         .signature {{
-            margin-top: 15px;
-            font-size: 14px;
+            margin-top: 12px;
+            font-size: 13px;
             color: #495057;
             font-weight: 500;
         }}
         
         .footer-text {{
-            font-size: 13px;
+            font-size: 12px;
             color: #6c757d;
-            line-height: 1.5;
-            margin: 5px 0;
+            line-height: 1.4;
+            margin: 4px 0;
         }}
         
         @media only screen and (max-width: 600px) {{
             .email-container {{ margin: 10px; }}
-            .content {{ padding: 20px 15px; }}
-            .header {{ padding: 25px 15px; }}
+            .content {{ padding: 15px 12px; }}
+            .header {{ padding: 18px 12px; }}
             .header h1 {{ font-size: 20px; }}
         }}
     </style>
@@ -631,19 +627,19 @@ def send_course_removal_email(user_email, user_name, course_name):
         </div>
         
         <div class="content">
-            <p style="font-size: 16px; color: #333333; margin-bottom: 20px;">Dear {user_name},</p>
+            <p style="font-size: 15px; color: #333333; margin-bottom: 15px;">Dear {user_name},</p>
             
-            <p style="font-size: 15px; color: #495057; margin: 15px 0;">
+            <p style="font-size: 14px; color: #495057; margin: 12px 0;">
                 This is to inform you that you have been removed from the following course assignment:
             </p>
             
             <div class="info-box">
-                <p style="margin: 0; font-size: 15px;">
+                <p style="margin: 0; font-size: 14px;">
                     <strong>📖 Course:</strong> {course_name}
                 </p>
             </div>
             
-            <p style="font-size: 15px; color: #495057; margin: 20px 0;">
+            <p style="font-size: 14px; color: #495057; margin: 15px 0;">
                 You are no longer required to complete this course. If you believe this is an error, please contact your administrator.
             </p>
         </div>

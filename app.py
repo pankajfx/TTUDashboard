@@ -6,6 +6,8 @@ import json
 import os
 import logging
 import re
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from functools import wraps
@@ -318,6 +320,94 @@ def get_available_courses():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# ── Email Job Tracking ────────────────────────────────────────────────────────
+# Each job: {total, sent, failed, status: 'running'|'completed'}
+_email_jobs: dict = {}
+_email_jobs_lock = threading.Lock()
+
+_EMAIL_WORKERS = 8   # parallel SMTP connections per job
+_JOB_TTL = 600       # seconds before a completed job is cleaned up
+
+
+def _create_job(total: int) -> str:
+    job_id = str(uuid.uuid4())
+    with _email_jobs_lock:
+        _email_jobs[job_id] = {'total': total, 'sent': 0, 'failed': 0, 'status': 'running'}
+    return job_id
+
+
+def _mark_job_done(job_id: str):
+    with _email_jobs_lock:
+        if job_id in _email_jobs:
+            _email_jobs[job_id]['status'] = 'completed'
+    def _cleanup():
+        time.sleep(_JOB_TTL)
+        with _email_jobs_lock:
+            _email_jobs.pop(job_id, None)
+    threading.Thread(target=_cleanup, daemon=True).start()
+
+
+def _run_email_job(job_id, emails, send_fn):
+    """Execute a list of (email, name, ...) send calls in parallel and track progress."""
+    def _one(task):
+        try:
+            return send_fn(task)
+        except Exception as e:
+            logger.error(f"Email job {job_id}: error: {e}")
+            return False
+
+    with ThreadPoolExecutor(max_workers=_EMAIL_WORKERS) as pool:
+        futures = {pool.submit(_one, task): task for task in emails}
+        for future in as_completed(futures):
+            ok = future.result()
+            with _email_jobs_lock:
+                if job_id in _email_jobs:
+                    if ok:
+                        _email_jobs[job_id]['sent'] += 1
+                    else:
+                        _email_jobs[job_id]['failed'] += 1
+    _mark_job_done(job_id)
+
+
+def _dispatch_assignment_emails(emails, course_name, deadline, email_to_name) -> str:
+    """Start a background job to send assignment notification emails. Returns job_id."""
+    tasks = [(email, email_to_name.get(email, email.split('@')[0])) for email in emails]
+    job_id = _create_job(len(tasks))
+
+    def _send(task):
+        user_email, user_name = task
+        return send_course_assignment_email(user_email, user_name, course_name, deadline)
+
+    t = threading.Thread(target=_run_email_job, args=(job_id, tasks, _send), daemon=True)
+    t.start()
+    return job_id
+
+
+def _dispatch_removal_emails(emails, course_name, email_to_name) -> str:
+    """Start a background job to send removal notification emails. Returns job_id."""
+    tasks = [(email, email_to_name.get(email, email.split('@')[0])) for email in emails]
+    job_id = _create_job(len(tasks))
+
+    def _send(task):
+        user_email, user_name = task
+        return send_course_removal_email(user_email, user_name, course_name)
+
+    t = threading.Thread(target=_run_email_job, args=(job_id, tasks, _send), daemon=True)
+    t.start()
+    return job_id
+
+
+@app.route('/api/email-job/<job_id>', methods=['GET'])
+@admin_required
+def get_email_job_status(job_id):
+    """Return current progress of an email dispatch job."""
+    with _email_jobs_lock:
+        job = _email_jobs.get(job_id)
+    if not job:
+        return jsonify({'error': 'Job not found or already expired'}), 404
+    return jsonify(job)
+
+
 @app.route('/api/settings/assignments', methods=['GET'])
 @admin_required
 def get_assignments():
@@ -333,13 +423,14 @@ def create_assignment():
     course_name = data.get('course_name')
     user_emails = data.get('user_emails', [])
     deadline = data.get('deadline')
-    
+    notify_email = data.get('notify_email', False)
+
     if not course_name or not user_emails or not deadline:
         return jsonify({'error': 'Course name, users, and deadline are required'}), 400
-    
+
     assignments_data = load_json_file(ASSIGNMENTS_FILE, {'assignments': []})
     assignments = assignments_data.get('assignments', [])
-    
+
     # Create new assignment
     assignment = {
         'id': len(assignments) + 1,
@@ -349,52 +440,26 @@ def create_assignment():
         'created_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'created_by': session.get('username')
     }
-    
+
     assignments.append(assignment)
     assignments_data['assignments'] = assignments
-    
+
     if not save_json_file(ASSIGNMENTS_FILE, assignments_data):
         return jsonify({'error': 'Failed to save assignment'}), 500
-    
-    # Send email notifications to all assigned users
-    email_results = {'success': 0, 'failed': 0, 'failed_emails': []}
-    users_data = load_json_file(USERS_FILE, {'users': []})
-    users = users_data.get('users', [])
-    
-    # Create a mapping of email to name for quick lookup
-    email_to_name = {user['email']: user['name'] for user in users}
-    
-    for user_email in user_emails:
-        # Get user name from users data
-        user_name = email_to_name.get(user_email, user_email.split('@')[0])
-        
-        # Send course assignment notification
-        try:
-            success = send_course_assignment_email(
-                user_email=user_email,
-                user_name=user_name,
-                course_name=course_name,
-                deadline=deadline
-            )
-            
-            if success:
-                email_results['success'] += 1
-                logger.info(f"Successfully sent email to {user_email}")
-            else:
-                email_results['failed'] += 1
-                email_results['failed_emails'].append(user_email)
-                logger.warning(f"Failed to send email to {user_email}")
-        except Exception as e:
-            email_results['failed'] += 1
-            email_results['failed_emails'].append(user_email)
-            logger.error(f"Error sending email to {user_email}: {e}")
-    
+
+    # Dispatch email notifications in background if requested
+    email_job_id = None
+    if notify_email:
+        users_data = load_json_file(USERS_FILE, {'users': []})
+        email_to_name = {u['email']: u['name'] for u in users_data.get('users', [])}
+        email_job_id = _dispatch_assignment_emails(user_emails, course_name, deadline, email_to_name)
+
     return jsonify({
         'message': 'Assignment created successfully',
         'assignment': assignment,
-        'emails_sent': email_results['success'],
-        'emails_failed': email_results['failed'],
-        'failed_emails': email_results['failed_emails']
+        'notify_email': notify_email,
+        'email_job_id': email_job_id,
+        'email_total': len(user_emails) if notify_email else 0
     }), 201
 
 @app.route('/api/settings/assignments/<int:assignment_id>', methods=['GET'])
@@ -576,83 +641,54 @@ def update_assignment(assignment_id):
         
         data = request.get_json()
         new_user_emails = data.get('user_emails', [])
-        
+        notify_email = data.get('notify_email', False)
+
         # Load assignment
         assignments_data = load_json_file(ASSIGNMENTS_FILE, {'assignments': []})
         assignments = assignments_data.get('assignments', [])
         assignment = next((a for a in assignments if a.get('id') == assignment_id), None)
-        
+
         if not assignment:
             return jsonify({'error': 'Assignment not found'}), 404
-        
+
         old_user_emails = set(assignment['user_emails'])
         new_user_emails_set = set(new_user_emails)
-        
+
         # Find added and removed users
         added_users = new_user_emails_set - old_user_emails
         removed_users = old_user_emails - new_user_emails_set
-        
-        # Get users data for names
-        users_data = load_json_file(USERS_FILE, {'users': []})
-        email_to_name = {user['email']: user['name'] for user in users_data.get('users', [])}
-        
-        # Send notifications to added users
-        added_results = {'success': 0, 'failed': 0, 'failed_emails': []}
-        for user_email in added_users:
-            user_name = email_to_name.get(user_email, user_email.split('@')[0])
-            try:
-                success = send_course_assignment_email(
-                    user_email=user_email,
-                    user_name=user_name,
-                    course_name=assignment['course_name'],
-                    deadline=assignment['deadline']
-                )
-                if success:
-                    added_results['success'] += 1
-                else:
-                    added_results['failed'] += 1
-                    added_results['failed_emails'].append(user_email)
-            except Exception as e:
-                added_results['failed'] += 1
-                added_results['failed_emails'].append(user_email)
-                logger.error(f"Error notifying added user {user_email}: {e}")
-        
-        # Send notifications to removed users
-        removed_results = {'success': 0, 'failed': 0, 'failed_emails': []}
-        for user_email in removed_users:
-            user_name = email_to_name.get(user_email, user_email.split('@')[0])
-            try:
-                success = send_course_removal_email(
-                    user_email=user_email,
-                    user_name=user_name,
-                    course_name=assignment['course_name']
-                )
-                if success:
-                    removed_results['success'] += 1
-                else:
-                    removed_results['failed'] += 1
-                    removed_results['failed_emails'].append(user_email)
-            except Exception as e:
-                removed_results['failed'] += 1
-                removed_results['failed_emails'].append(user_email)
-                logger.error(f"Error notifying removed user {user_email}: {e}")
-        
+
         # Update assignment
         assignment['user_emails'] = new_user_emails
         assignment['last_modified'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
-        # Save
-        if save_json_file(ASSIGNMENTS_FILE, assignments_data):
-            return jsonify({
-                'message': 'Assignment updated successfully',
-                'assignment': assignment,
-                'users_added': len(added_users),
-                'users_removed': len(removed_users),
-                'notifications_sent': added_results['success'] + removed_results['success'],
-                'notifications_failed': added_results['failed'] + removed_results['failed']
-            })
-        else:
+
+        # Save first so response is immediate
+        if not save_json_file(ASSIGNMENTS_FILE, assignments_data):
             return jsonify({'error': 'Failed to save assignment'}), 500
+
+        # Dispatch email notifications in background if requested
+        email_job_id = None
+        email_total = 0
+        if notify_email:
+            users_data = load_json_file(USERS_FILE, {'users': []})
+            email_to_name = {u['email']: u['name'] for u in users_data.get('users', [])}
+            recipients = list(added_users) + list(removed_users)
+            email_total = len(recipients)
+            if added_users:
+                email_job_id = _dispatch_assignment_emails(
+                    list(added_users), assignment['course_name'], assignment['deadline'], email_to_name)
+            if removed_users:
+                _dispatch_removal_emails(list(removed_users), assignment['course_name'], email_to_name)
+
+        return jsonify({
+            'message': 'Assignment updated successfully',
+            'assignment': assignment,
+            'users_added': len(added_users),
+            'users_removed': len(removed_users),
+            'notify_email': notify_email,
+            'email_job_id': email_job_id,
+            'email_total': email_total
+        })
     except Exception as e:
         logger.error(f"Error updating assignment: {e}")
         return jsonify({'error': str(e)}), 500
@@ -682,7 +718,8 @@ def bulk_upload_assignment():
     
     course_name = request.form.get('course_name')
     deadline = request.form.get('deadline')
-    
+    notify_email = request.form.get('notify_email', 'false').lower() == 'true'
+
     if not course_name or not deadline:
         return jsonify({'error': 'Course name and deadline are required'}), 400
     
@@ -762,32 +799,13 @@ def bulk_upload_assignment():
         
         if not save_json_file(ASSIGNMENTS_FILE, assignments_data):
             return jsonify({'error': 'Failed to save assignment'}), 500
-        
-        # Send email notifications
-        email_results = {'success': 0, 'failed': 0, 'failed_emails': []}
-        email_to_name = {user['email']: user['name'] for user in users}
-        
-        for user_email in valid_emails:
-            user_name = email_to_name.get(user_email, user_email.split('@')[0])
-            
-            try:
-                success = send_course_assignment_email(
-                    user_email=user_email,
-                    user_name=user_name,
-                    course_name=course_name,
-                    deadline=deadline
-                )
-                
-                if success:
-                    email_results['success'] += 1
-                else:
-                    email_results['failed'] += 1
-                    email_results['failed_emails'].append(user_email)
-            except Exception as e:
-                email_results['failed'] += 1
-                email_results['failed_emails'].append(user_email)
-                logger.error(f"Error sending email to {user_email}: {e}")
-        
+
+        # Dispatch email notifications in background if requested
+        email_job_id = None
+        if notify_email:
+            email_to_name = {u['email']: u['name'] for u in users}
+            email_job_id = _dispatch_assignment_emails(valid_emails, course_name, deadline, email_to_name)
+
         return jsonify({
             'message': 'Assignment created successfully',
             'assignment': assignment,
@@ -796,9 +814,9 @@ def bulk_upload_assignment():
             'new_users_list': new_users_added,
             'invalid_count': len(invalid_emails),
             'invalid_emails': invalid_emails,
-            'emails_sent': email_results['success'],
-            'emails_failed': email_results['failed'],
-            'failed_emails': email_results['failed_emails']
+            'notify_email': notify_email,
+            'email_job_id': email_job_id,
+            'email_total': len(valid_emails) if notify_email else 0
         }), 201
             
     except Exception as e:

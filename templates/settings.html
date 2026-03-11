@@ -487,6 +487,78 @@
         </div>
     </div>
 
+    <!-- Notify Preference Modal -->
+    <div id="notifyPreferenceModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+        <div class="card max-w-sm w-full p-6">
+            <h2 class="text-xl font-bold text-gray-900 mb-2">Notify Users?</h2>
+            <p class="text-sm text-gray-500 mb-5">Choose whether to send an email notification to the assigned users.</p>
+            <div class="space-y-3 mb-6">
+                <label class="flex items-start gap-3 p-3 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50 transition">
+                    <input type="radio" name="notifyOption" id="notifyOptionNo" value="no" checked
+                        class="mt-0.5 w-4 h-4 accent-purple-600">
+                    <div>
+                        <span class="font-medium text-gray-800 block">Do not Notify</span>
+                        <span class="text-xs text-gray-500">Assignment is created silently — no emails sent</span>
+                    </div>
+                </label>
+                <label class="flex items-start gap-3 p-3 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50 transition">
+                    <input type="radio" name="notifyOption" id="notifyOptionYes" value="yes"
+                        class="mt-0.5 w-4 h-4 accent-purple-600">
+                    <div>
+                        <span class="font-medium text-gray-800 block">Notify via Email</span>
+                        <span class="text-xs text-gray-500">Send assignment notification to all selected users</span>
+                    </div>
+                </label>
+            </div>
+            <div class="flex gap-3">
+                <button id="notifyProceedBtn"
+                    class="btn-primary flex-1 py-2 px-4 text-white font-semibold rounded-lg">
+                    Proceed
+                </button>
+                <button id="notifyCancelBtn"
+                    class="flex-1 py-2 px-4 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400 transition">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Assignment Creation Loader -->
+    <div id="assignmentCreationLoader" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+        <div class="card p-8 flex flex-col items-center gap-4">
+            <div class="animate-spin rounded-full h-14 w-14 border-b-4 border-purple-600"></div>
+            <p id="assignmentLoaderText" class="text-gray-700 font-semibold text-base">Creating assignment...</p>
+        </div>
+    </div>
+
+    <!-- Email Dispatch Progress Modal (non-dismissable) -->
+    <div id="emailProgressModal" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[70] p-4">
+        <div class="card max-w-md w-full p-7 flex flex-col gap-4">
+            <div class="flex items-center gap-3">
+                <div class="animate-spin rounded-full h-7 w-7 flex-shrink-0"
+                    id="emailProgressSpinner"
+                    style="border-width:3px;border-style:solid;border-color:#e5e7eb;border-bottom-color:#7c3aed"></div>
+                <h2 class="text-lg font-bold text-gray-900" id="emailProgressTitle">Sending Notifications...</h2>
+            </div>
+            <p class="text-sm text-gray-500">Please wait while the users are being notified.</p>
+            <div class="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                <div id="emailProgressBar"
+                    class="h-3 rounded-full transition-all duration-500"
+                    style="width:0%;background:linear-gradient(90deg,#7c3aed,#a855f7)"></div>
+            </div>
+            <div class="flex justify-between text-sm font-medium text-gray-700">
+                <span id="emailProgressCount">0 / 0 sent</span>
+                <span id="emailProgressPct">0%</span>
+            </div>
+            <div id="emailProgressFailed" class="hidden text-xs text-red-500"></div>
+            <button id="emailProgressDoneBtn"
+                class="hidden btn-primary w-full py-2 px-4 text-white font-semibold rounded-lg mt-1"
+                onclick="closeEmailProgressModal()">
+                Done
+            </button>
+        </div>
+    </div>
+
     <script>
         // Custom Notification System
         function showNotification(title, message, type = 'info') {
@@ -543,7 +615,125 @@
             }
         `;
         document.head.appendChild(style);
-        
+
+        // ── Notify Preference Modal ──────────────────────────────────────────
+        let _notifyResolve = null;
+
+        function showNotifyModal() {
+            return new Promise((resolve) => {
+                _notifyResolve = resolve;
+                // Reset to default each time
+                document.getElementById('notifyOptionNo').checked = true;
+                document.getElementById('notifyPreferenceModal').classList.remove('hidden');
+            });
+        }
+
+        document.getElementById('notifyProceedBtn').addEventListener('click', () => {
+            const notifyEmail = document.getElementById('notifyOptionYes').checked;
+            document.getElementById('notifyPreferenceModal').classList.add('hidden');
+            if (_notifyResolve) { _notifyResolve(notifyEmail); _notifyResolve = null; }
+        });
+
+        document.getElementById('notifyCancelBtn').addEventListener('click', () => {
+            document.getElementById('notifyPreferenceModal').classList.add('hidden');
+            if (_notifyResolve) { _notifyResolve(null); _notifyResolve = null; }
+        });
+
+        // ── Assignment Creation Loader ───────────────────────────────────────
+        function showAssignmentLoader(text) {
+            document.getElementById('assignmentLoaderText').textContent = text || 'Creating assignment...';
+            document.getElementById('assignmentCreationLoader').classList.remove('hidden');
+        }
+
+        function hideAssignmentLoader() {
+            document.getElementById('assignmentCreationLoader').classList.add('hidden');
+        }
+
+        // ── Email Progress Modal & Polling ───────────────────────────────────
+        let _emailJobActive = false;      // blocks submit buttons during a job
+        let _emailPollTimer = null;
+
+        function closeEmailProgressModal() {
+            document.getElementById('emailProgressModal').classList.add('hidden');
+            _emailJobActive = false;
+        }
+
+        /**
+         * Show the email dispatch progress modal and poll until the job completes.
+         * @param {string} jobId  - job ID returned by the API
+         * @param {number} total  - total emails expected
+         * @param {string} doneMsg - toast message to show when done
+         */
+        async function pollEmailJob(jobId, total, doneMsg) {
+            _emailJobActive = true;
+            const modal   = document.getElementById('emailProgressModal');
+            const title   = document.getElementById('emailProgressTitle');
+            const bar     = document.getElementById('emailProgressBar');
+            const count   = document.getElementById('emailProgressCount');
+            const pct     = document.getElementById('emailProgressPct');
+            const failed  = document.getElementById('emailProgressFailed');
+            const doneBtn = document.getElementById('emailProgressDoneBtn');
+            const spinner = document.getElementById('emailProgressSpinner');
+
+            // Reset state
+            title.textContent   = 'Sending Notifications...';
+            bar.style.width     = '0%';
+            count.textContent   = `0 / ${total} sent`;
+            pct.textContent     = '0%';
+            failed.classList.add('hidden');
+            doneBtn.classList.add('hidden');
+            spinner.style.display = 'block';
+            modal.classList.remove('hidden');
+
+            const POLL_INTERVAL = 1500; // ms
+
+            const _poll = async () => {
+                try {
+                    const res  = await fetch(`/api/email-job/${jobId}`);
+                    if (!res.ok) {
+                        // Job expired or not found — treat as done
+                        _finishEmailJob(bar, count, pct, title, spinner, doneBtn, failed, total, total, 0, doneMsg);
+                        return;
+                    }
+                    const job = await res.json();
+                    const done = job.sent + job.failed;
+                    const tot  = job.total || total;
+                    const frac = tot > 0 ? done / tot : 0;
+                    const pctVal = Math.round(frac * 100);
+
+                    bar.style.width   = `${pctVal}%`;
+                    count.textContent = `${done} / ${tot} sent`;
+                    pct.textContent   = `${pctVal}%`;
+
+                    if (job.status === 'completed') {
+                        _finishEmailJob(bar, count, pct, title, spinner, doneBtn, failed, done, tot, job.failed, doneMsg);
+                    } else {
+                        _emailPollTimer = setTimeout(_poll, POLL_INTERVAL);
+                    }
+                } catch (err) {
+                    // Network error — retry
+                    _emailPollTimer = setTimeout(_poll, POLL_INTERVAL * 2);
+                }
+            };
+
+            _emailPollTimer = setTimeout(_poll, POLL_INTERVAL);
+        }
+
+        function _finishEmailJob(bar, count, pct, title, spinner, doneBtn, failed, done, total, failedCount, doneMsg) {
+            bar.style.width   = '100%';
+            count.textContent = `${done} / ${total} sent`;
+            pct.textContent   = '100%';
+            title.textContent = 'Notifications Sent!';
+            spinner.style.display = 'none';
+            doneBtn.classList.remove('hidden');
+            if (failedCount > 0) {
+                failed.textContent = `${failedCount} email(s) could not be delivered.`;
+                failed.classList.remove('hidden');
+            }
+            if (doneMsg) showNotification('Emails Sent', doneMsg, 'success');
+            loadAssignments();
+        }
+
         let users = [];
         let filteredUsers = [];
         let assignmentUsers = [];
@@ -1045,6 +1235,16 @@
                 return;
             }
 
+            if (_emailJobActive) {
+                showNotification('Please Wait', 'An email job is already in progress. Wait for it to finish before creating another assignment.', 'warning');
+                return;
+            }
+
+            // Show notification preference modal first
+            const notifyEmail = await showNotifyModal();
+            if (notifyEmail === null) return; // user cancelled
+
+            showAssignmentLoader(`Creating assignment for ${selectedUsers.length} user(s)...`);
             try {
                 const response = await fetch('/api/settings/assignments', {
                     method: 'POST',
@@ -1052,22 +1252,34 @@
                     body: JSON.stringify({
                         course_name: courseName,
                         user_emails: selectedUsers,
-                        deadline: deadline
+                        deadline: deadline,
+                        notify_email: notifyEmail
                     })
                 });
 
                 const data = await response.json();
                 if (response.ok) {
-                    showNotification('Success', 'Assignment created successfully!', 'success');
+                    // Reset form immediately so accidental re-clicks can't duplicate
                     document.getElementById('createAssignmentForm').reset();
                     document.querySelectorAll('.user-checkbox').forEach(cb => cb.checked = false);
-                    selectedAssignmentEmails.clear(); // Clear the selection Set
-                    updateSelectionCounter(); // Update UI
-                    loadAssignments();
+                    selectedAssignmentEmails.clear();
+                    updateSelectionCounter();
+
+                    hideAssignmentLoader();
+
+                    if (notifyEmail && data.email_job_id) {
+                        const doneMsg = `${selectedUsers.length} notification(s) dispatched for "${courseName}".`;
+                        pollEmailJob(data.email_job_id, data.email_total || selectedUsers.length, doneMsg);
+                    } else {
+                        showNotification('Success', 'Assignment created successfully!', 'success');
+                        loadAssignments();
+                    }
                 } else {
+                    hideAssignmentLoader();
                     showNotification('Error', data.error || 'Failed to create assignment', 'error');
                 }
             } catch (error) {
+                hideAssignmentLoader();
                 showNotification('Error', 'Error creating assignment: ' + error.message, 'error');
             }
         });
@@ -1086,11 +1298,22 @@
                 return;
             }
 
+            if (_emailJobActive) {
+                showNotification('Please Wait', 'An email job is already in progress. Wait for it to finish before creating another assignment.', 'warning');
+                return;
+            }
+
+            // Show notification preference modal first
+            const notifyEmail = await showNotifyModal();
+            if (notifyEmail === null) return; // user cancelled
+
             const formData = new FormData();
             formData.append('file', file);
             formData.append('course_name', courseName);
             formData.append('deadline', deadline);
+            formData.append('notify_email', notifyEmail ? 'true' : 'false');
 
+            showAssignmentLoader('Processing file and creating assignment...');
             try {
                 const response = await fetch('/api/settings/assignments/bulk-upload', {
                     method: 'POST',
@@ -1099,24 +1322,31 @@
 
                 const data = await response.json();
                 if (response.ok) {
-                    let message = `Course assigned to ${data.users_assigned} user(s)`;
-                    if (data.new_users_added > 0) {
-                        message += `, ${data.new_users_added} new user(s) added`;
-                    }
-                    if (data.invalid_count > 0) {
-                        message += `, ${data.invalid_count} invalid email(s) ignored`;
-                    }
-                    
-                    showNotification('Assignment Created', message, 'success');
-                    
+                    // Reset form immediately to prevent duplicate submissions
                     document.getElementById('bulkUploadAssignmentForm').reset();
                     fileInput.value = '';
-                    loadAssignments();
-                    loadUsers(); // Refresh users list if new users were added
+
+                    hideAssignmentLoader();
+                    loadUsers();
+
+                    let baseMsg = `Course assigned to ${data.users_assigned} user(s)`;
+                    if (data.new_users_added > 0) baseMsg += `, ${data.new_users_added} new user(s) added`;
+                    if (data.invalid_count > 0)  baseMsg += `, ${data.invalid_count} invalid email(s) ignored`;
+
+                    if (notifyEmail && data.email_job_id) {
+                        showNotification('Assignment Created', baseMsg, 'success');
+                        const doneMsg = `${data.email_total || data.users_assigned} notification(s) dispatched for "${courseName}".`;
+                        pollEmailJob(data.email_job_id, data.email_total || data.users_assigned, doneMsg);
+                    } else {
+                        showNotification('Assignment Created', baseMsg, 'success');
+                        loadAssignments();
+                    }
                 } else {
+                    hideAssignmentLoader();
                     showNotification('Error', data.error || 'Failed to create assignment', 'error');
                 }
             } catch (error) {
+                hideAssignmentLoader();
                 showNotification('Error', 'Error uploading file: ' + error.message, 'error');
             }
         });
@@ -1488,22 +1718,43 @@
                 return;
             }
 
+            if (_emailJobActive) {
+                showNotification('Please Wait', 'An email job is already in progress.', 'warning');
+                return;
+            }
+
+            // Show notification preference modal
+            const notifyEmail = await showNotifyModal();
+            if (notifyEmail === null) return; // user cancelled
+
+            showAssignmentLoader('Saving assignment changes...');
             try {
                 const response = await fetch(`/api/settings/assignments/${currentEditAssignmentId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ user_emails: selectedUsers })
+                    body: JSON.stringify({ user_emails: selectedUsers, notify_email: notifyEmail })
                 });
 
                 const data = await response.json();
                 if (response.ok) {
-                    showNotification('Assignment Updated', `Users Added: ${data.users_added} | Users Removed: ${data.users_removed} | Notifications Sent: ${data.notifications_sent}`, 'success');
                     closeEditAssignment();
-                    loadAssignments();
+                    hideAssignmentLoader();
+
+                    const baseMsg = `Users Added: ${data.users_added} | Users Removed: ${data.users_removed}`;
+                    if (notifyEmail && data.email_job_id) {
+                        showNotification('Assignment Updated', baseMsg, 'success');
+                        const doneMsg = `${data.email_total} notification(s) dispatched.`;
+                        pollEmailJob(data.email_job_id, data.email_total, doneMsg);
+                    } else {
+                        showNotification('Assignment Updated', baseMsg, 'success');
+                        loadAssignments();
+                    }
                 } else {
+                    hideAssignmentLoader();
                     showNotification('Error', 'Failed to update assignment: ' + (data.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
+                hideAssignmentLoader();
                 showNotification('Error', 'Error updating assignment: ' + error.message, 'error');
             }
         }
