@@ -1456,10 +1456,12 @@ def get_user_details(user_email):
         logger.error(f"Error in get_user_details: {traceback.format_exc()}")
         return jsonify({"error": "Failed to load user details"}), 500
 
+# Initialize cache when the module is imported (covers both direct run and
+# Waitress/any WSGI server that imports app without running __main__).
+initialize_cache()
+
 if __name__ == '__main__':
     # use_reloader=False is required: with the default reloader Flask spawns a
-    # child subprocess for requests and a parent watcher process. initialize_cache()
-    # would run only in the parent, leaving the child with no scheduler and stale
-    # data forever. Disabling the reloader keeps a single process.
-    initialize_cache()
+    # child subprocess for requests and a parent watcher process. The scheduler
+    # would start twice — once in the parent watcher and once in the child.
     app.run(debug=True, port=5000, use_reloader=False)
