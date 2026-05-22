@@ -5,7 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Settings - Course Analytics Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.min.css') }}">
+    <meta name="csrf-token" content="{{ csrf_token }}">
     <style>
         body {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 75%, #00f2fe 100%);
@@ -324,72 +325,76 @@
     <!-- Edit Assignment Modal -->
     <div id="editAssignmentModal"
         class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div class="card max-w-2xl w-full max-h-[80vh] flex flex-col">
-            <div class="p-6 flex-shrink-0">
-                <div class="flex justify-between items-start mb-6">
-                    <h2 class="text-2xl font-bold text-gray-900">Edit Assignment</h2>
-                    <button onclick="closeEditAssignment()" class="text-gray-500 hover:text-gray-700">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M6 18L18 6M6 6l12 12"></path>
-                        </svg>
-                    </button>
+        <div class="card max-w-2xl w-full max-h-[85vh] flex flex-col">
+
+            <!-- Fixed header -->
+            <div class="flex justify-between items-start p-6 pb-4 flex-shrink-0">
+                <h2 class="text-2xl font-bold text-gray-900">Edit Assignment</h2>
+                <button onclick="closeEditAssignment()" class="text-gray-500 hover:text-gray-700">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Loading Spinner -->
+            <div id="editAssignmentLoading" class="flex-1 flex flex-col items-center justify-center py-12">
+                <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-600 mb-4"></div>
+                <p class="text-gray-600 font-medium">Loading assignment details...</p>
+            </div>
+
+            <!-- Scrollable body (hidden initially) -->
+            <div id="editAssignmentContent" class="hidden flex-1 overflow-y-auto px-6 min-h-0">
+                <div class="mb-4">
+                    <p class="text-sm text-gray-600"><strong>Course:</strong> <span id="editCourseName">Loading...</span></p>
+                    <p class="text-sm text-gray-600"><strong>Deadline:</strong> <span id="editDeadline">Loading...</span></p>
                 </div>
 
-                <!-- Loading Spinner -->
-                <div id="editAssignmentLoading" class="flex flex-col items-center justify-center py-12">
-                    <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-600 mb-4"></div>
-                    <p class="text-gray-600 font-medium">Loading assignment details...</p>
+                <div class="mb-4">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Search Users</label>
+                    <input type="text" id="editUserSearchInput" placeholder="Search users by email or name..."
+                        class="input-field w-full px-3 py-2 text-sm rounded-lg" />
                 </div>
 
-                <!-- Content (hidden initially) -->
-                <div id="editAssignmentContent" class="hidden">
-                    <div class="mb-4">
-                        <p class="text-sm text-gray-600"><strong>Course:</strong> <span id="editCourseName">Loading...</span></p>
-                        <p class="text-sm text-gray-600"><strong>Deadline:</strong> <span id="editDeadline">Loading...</span></p>
-                    </div>
-
-                    <div class="mb-4">
-                        <label class="block text-sm font-semibold text-gray-700 mb-2">Search Users</label>
-                        <input type="text" id="editUserSearchInput" placeholder="Search users by email or name..."
-                            class="input-field w-full px-3 py-2 text-sm rounded-lg" />
-                    </div>
-
-                    <div class="mb-4">
-                        <div class="flex justify-between items-center mb-2">
-                            <label class="block text-sm font-semibold text-gray-700">Select Users</label>
-                            <div class="flex gap-2">
-                                <button type="button" onclick="selectAllEditUsers()"
-                                    class="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">
-                                    Select All
-                                </button>
-                                <button type="button" onclick="deselectAllEditUsers()"
-                                    class="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition">
-                                    Deselect All
-                                </button>
-                            </div>
-                        </div>
-                        <div id="editUserSelectionCounter" class="mb-2 text-sm font-medium text-blue-600">
-                            0 users selected
-                        </div>
-                        <div id="editUsersCheckboxList"
-                            class="border border-gray-200 rounded-lg p-4 max-h-64 overflow-y-auto">
-                            <!-- User checkboxes will be loaded here -->
+                <div class="mb-4">
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="block text-sm font-semibold text-gray-700">Select Users</label>
+                        <div class="flex gap-2">
+                            <button type="button" onclick="selectAllEditUsers()"
+                                class="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">
+                                Select All
+                            </button>
+                            <button type="button" onclick="deselectAllEditUsers()"
+                                class="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition">
+                                Deselect All
+                            </button>
                         </div>
                     </div>
-
-                    <div class="flex gap-3">
-                        <button onclick="saveAssignmentEdit()"
-                            class="btn-primary flex-1 py-2 px-4 text-white font-semibold rounded-lg">
-                            Save Changes
-                        </button>
-                        <button onclick="closeEditAssignment()"
-                            class="flex-1 py-2 px-4 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400 transition">
-                            Cancel
-                        </button>
+                    <div id="editUserSelectionCounter" class="mb-2 text-sm font-medium text-blue-600">
+                        0 users selected
+                    </div>
+                    <div id="editUsersCheckboxList"
+                        class="border border-gray-200 rounded-lg p-4 overflow-y-auto">
+                        <!-- User checkboxes will be loaded here -->
                     </div>
                 </div>
             </div>
+
+            <!-- Pinned footer with buttons (hidden initially) -->
+            <div id="editAssignmentFooter" class="hidden flex-shrink-0 px-6 py-4 border-t border-gray-200">
+                <div class="flex gap-3">
+                    <button onclick="saveAssignmentEdit()"
+                        class="btn-primary flex-1 py-2 px-4 text-white font-semibold rounded-lg">
+                        Save Changes
+                    </button>
+                    <button onclick="closeEditAssignment()"
+                        class="flex-1 py-2 px-4 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400 transition">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -460,23 +465,36 @@
 
             <!-- Users Table with Fixed Header and Scrollable Body -->
             <div id="assignmentDetailsTable" class="hidden flex-1 overflow-hidden px-6 pb-6">
-                <div class="h-full border border-gray-200 rounded-lg overflow-hidden flex flex-col">
-                    <div class="overflow-x-auto flex-shrink-0">
-                        <table class="w-full">
-                            <thead class="bg-gray-100 sticky top-0">
+                <div class="h-full border border-gray-200 rounded-lg overflow-hidden flex flex-col" style="height:270px;">
+                    <div class="flex-shrink-0">
+                        <table class="w-full" style="table-layout: fixed; border-collapse: collapse;">
+                            <colgroup>
+                                <col style="width: 30%;">
+                                <col style="width: 20%;">
+                                <col style="width: 15%;">
+                                <col style="width: 20%;">
+                                <col style="width: 15%;">
+                            </colgroup>
+                            <thead class="bg-gray-100">
                                 <tr>
                                     <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">User Email</th>
                                     <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Name</th>
                                     <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Status</th>
                                     <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Progress</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Completion Date
-                                    </th>
+                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Completion Date</th>
                                 </tr>
                             </thead>
                         </table>
                     </div>
                     <div class="flex-1 overflow-y-auto">
-                        <table class="w-full">
+                        <table class="w-full" style="table-layout: fixed; border-collapse: collapse;">
+                            <colgroup>
+                                <col style="width: 30%;">
+                                <col style="width: 20%;">
+                                <col style="width: 15%;">
+                                <col style="width: 20%;">
+                                <col style="width: 15%;">
+                            </colgroup>
                             <tbody id="usersTableBody" class="divide-y divide-gray-200">
                                 <!-- User rows will be loaded here -->
                             </tbody>
@@ -560,6 +578,27 @@
     </div>
 
     <script>
+        // HTML escape helper — always use h() when inserting data into innerHTML
+        function h(str) {
+            return String(str ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        // Attach CSRF token to every mutating fetch automatically
+        const _csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+        const _origFetch = window.fetch;
+        window.fetch = function(url, opts = {}) {
+            const method = (opts.method || 'GET').toUpperCase();
+            if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+                opts.headers = Object.assign({ 'X-CSRF-Token': _csrfToken }, opts.headers || {});
+            }
+            return _origFetch(url, opts);
+        };
+
         // Custom Notification System
         function showNotification(title, message, type = 'info') {
             const toast = document.getElementById('notificationToast');
@@ -857,7 +896,7 @@
             if (filteredUsers.length === 0) {
                 const searchInput = document.getElementById('userSearchInput');
                 const searchTerm = searchInput ? searchInput.value : '';
-                usersList.innerHTML = `<p class="text-gray-500 text-center py-4">No users found matching "${searchTerm}"</p>`;
+                usersList.innerHTML = `<p class="text-gray-500 text-center py-4">No users found matching &ldquo;${h(searchTerm)}&rdquo;</p>`;
                 return;
             }
 
@@ -866,19 +905,23 @@
                 <div class="user-item flex justify-between items-center p-3 bg-gray-50 rounded-lg">
                     <div class="flex-1">
                         <div class="flex items-center gap-2">
-                            <p class="font-medium text-gray-900">${user.email}</p>
+                            <p class="font-medium text-gray-900">${h(user.email)}</p>
                             ${user.source === 'api' ? '<span class="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">API</span>' : '<span class="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded">Manual</span>'}
                         </div>
-                        ${user.name ? `<p class="text-sm text-gray-600">${user.name}</p>` : ''}
-                        <p class="text-xs text-gray-500">Added: ${user.added_date}</p>
+                        ${user.name ? `<p class="text-sm text-gray-600">${h(user.name)}</p>` : ''}
+                        <p class="text-xs text-gray-500">Added: ${h(user.added_date)}</p>
                     </div>
-                    <button onclick="deleteUser('${user.email}')" class="text-red-600 hover:text-red-800 ml-2">
+                    <button class="delete-user-btn text-red-600 hover:text-red-800 ml-2" data-email="${h(user.email)}">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
                         </svg>
                     </button>
                 </div>
             `).join('');
+
+            usersList.querySelectorAll('.delete-user-btn').forEach(btn => {
+                btn.addEventListener('click', () => deleteUser(btn.dataset.email));
+            });
         }
 
         // Validate user email for duplicates
@@ -999,7 +1042,7 @@
                 courses = data.courses || [];
 
                 const courseOptions = '<option value="">Select a course...</option>' +
-                    courses.map(course => `<option value="${course}">${course}</option>`).join('');
+                    courses.map(course => `<option value="${h(course)}">${h(course)}</option>`).join('');
                 
                 // Update both course selects
                 document.getElementById('courseSelect').innerHTML = courseOptions;
@@ -1065,7 +1108,7 @@
             if (filteredAssignmentUsers.length === 0) {
                 const searchInput = document.getElementById('assignmentUserSearchInput');
                 const searchTerm = searchInput ? searchInput.value : '';
-                container.innerHTML = `<p class="text-gray-500 text-sm text-center py-2">No users found matching "${searchTerm}"</p>`;
+                container.innerHTML = `<p class="text-gray-500 text-sm text-center py-2">No users found matching &ldquo;${h(searchTerm)}&rdquo;</p>`;
                 return;
             }
 
@@ -1074,11 +1117,15 @@
                 const isChecked = selectedAssignmentEmails.has(user.email);
                 return `
                     <label class="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
-                        <input type="checkbox" value="${user.email}" class="user-checkbox" onchange="updateSelectionCounter()" ${isChecked ? 'checked' : ''}>
-                        <span class="text-sm flex-1">${user.email}${user.name ? ` (${user.name})` : ''}</span>
+                        <input type="checkbox" value="${h(user.email)}" class="user-checkbox" ${isChecked ? 'checked' : ''}>
+                        <span class="text-sm flex-1">${h(user.email)}${user.name ? ` (${h(user.name)})` : ''}</span>
                     </label>
                 `;
             }).join('');
+
+            container.querySelectorAll('.user-checkbox').forEach(cb => {
+                cb.addEventListener('change', () => updateSelectionCounter());
+            });
         }
 
         // Load users for assignment checkboxes
@@ -1147,14 +1194,18 @@
 
                 selectedList.innerHTML = selectedUserDetails.map(user => `
                     <div class="flex items-center justify-between p-2 bg-white rounded border border-blue-200">
-                        <span class="text-sm text-gray-900">${user.email}${user.name ? ` (${user.name})` : ''}</span>
-                        <button onclick="removeUserFromSelection('${user.email}')" class="text-red-500 hover:text-red-700 ml-2">
+                        <span class="text-sm text-gray-900">${h(user.email)}${user.name ? ` (${h(user.name)})` : ''}</span>
+                        <button class="remove-selection-btn text-red-500 hover:text-red-700 ml-2" data-email="${h(user.email)}">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                             </svg>
                         </button>
                     </div>
                 `).join('');
+
+                selectedList.querySelectorAll('.remove-selection-btn').forEach(btn => {
+                    btn.addEventListener('click', () => removeUserFromSelection(btn.dataset.email));
+                });
             } else {
                 basket.classList.add('hidden');
             }
@@ -1388,28 +1439,27 @@
                 const completionRate = assignment.stats ? assignment.stats.completion_rate : 0;
                 const completionColor = completionRate >= 75 ? 'text-green-600' : completionRate >= 50 ? 'text-yellow-600' : 'text-red-600';
 
+                const aid = parseInt(assignment.id, 10);
                 return `
-                <div class="assignment-item p-4 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition" onclick="viewAssignmentDetails(${assignment.id})">
+                <div class="assignment-item p-4 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition"
+                     data-aid="${aid}">
                     <div class="flex justify-between items-start mb-2">
                         <div class="flex-1">
-                            <h3 class="font-semibold text-gray-900">${assignment.course_name}</h3>
+                            <h3 class="font-semibold text-gray-900">${h(assignment.course_name)}</h3>
                             <p class="text-sm ${completionColor} font-medium">Completion: ${completionRate.toFixed(1)}%</p>
                         </div>
                         <div class="flex gap-2">
-                            <button onclick="event.stopPropagation(); sendReminders(${assignment.id})" 
-                                    class="text-yellow-600 hover:text-yellow-800" title="Send Reminders">
+                            <button class="remind-btn text-yellow-600 hover:text-yellow-800" data-aid="${aid}" title="Send Reminders">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
                                 </svg>
                             </button>
-                            <button onclick="event.stopPropagation(); editAssignment(${assignment.id})" 
-                                    class="text-blue-600 hover:text-blue-800" title="Edit Assignment">
+                            <button class="edit-assignment-btn text-blue-600 hover:text-blue-800" data-aid="${aid}" title="Edit Assignment">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
                                 </svg>
                             </button>
-                            <button onclick="event.stopPropagation(); deleteAssignment(${assignment.id})" 
-                                    class="text-red-600 hover:text-red-800" title="Delete Assignment">
+                            <button class="delete-assignment-btn text-red-600 hover:text-red-800" data-aid="${aid}" title="Delete Assignment">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
                                 </svg>
@@ -1417,22 +1467,35 @@
                         </div>
                     </div>
                     <p class="text-sm text-gray-600 mb-2">
-                        <strong>Deadline:</strong> ${assignment.deadline}
+                        <strong>Deadline:</strong> ${h(assignment.deadline)}
                     </p>
                     <p class="text-sm text-gray-600 mb-2">
-                        <strong>Assigned to:</strong> ${assignment.user_emails.length} user(s)
+                        <strong>Assigned to:</strong> ${h(assignment.user_emails.length)} user(s)
                     </p>
                     ${assignment.stats ? `
                         <div class="text-xs text-gray-600 mt-2">
-                            <span class="text-green-600">✓ ${assignment.stats.completed}</span> | 
-                            <span class="text-yellow-600">⟳ ${assignment.stats.in_progress}</span> | 
-                            <span class="text-red-600">✗ ${assignment.stats.not_started}</span>
+                            <span class="text-green-600">✓ ${h(assignment.stats.completed)}</span> |
+                            <span class="text-yellow-600">⟳ ${h(assignment.stats.in_progress)}</span> |
+                            <span class="text-red-600">✗ ${h(assignment.stats.not_started)}</span>
                         </div>
                     ` : ''}
-                    <p class="text-xs text-gray-400 mt-2">Created: ${assignment.created_date}</p>
+                    <p class="text-xs text-gray-400 mt-2">Created: ${h(assignment.created_date)}</p>
                 </div>
             `;
             }).join('');
+
+            assignmentsList.querySelectorAll('.assignment-item[data-aid]').forEach(card => {
+                card.addEventListener('click', () => viewAssignmentDetails(parseInt(card.dataset.aid, 10)));
+            });
+            assignmentsList.querySelectorAll('.remind-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => { e.stopPropagation(); sendReminders(parseInt(btn.dataset.aid, 10)); });
+            });
+            assignmentsList.querySelectorAll('.edit-assignment-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => { e.stopPropagation(); editAssignment(parseInt(btn.dataset.aid, 10)); });
+            });
+            assignmentsList.querySelectorAll('.delete-assignment-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => { e.stopPropagation(); deleteAssignment(parseInt(btn.dataset.aid, 10)); });
+            });
         }
 
         // Delete assignment
@@ -1557,11 +1620,11 @@
 
                 return `
                     <tr class="hover:bg-gray-50">
-                        <td class="px-4 py-3 text-sm text-gray-900">${user.email}</td>
-                        <td class="px-4 py-3 text-sm text-gray-700">${user.name || '-'}</td>
+                        <td class="px-4 py-3 text-sm text-gray-900">${h(user.email)}</td>
+                        <td class="px-4 py-3 text-sm text-gray-700">${h(user.name || '-')}</td>
                         <td class="px-4 py-3">
                             <span class="px-2 py-1 text-xs font-medium rounded ${statusClass}">
-                                ${statusText}
+                                ${h(statusText)}
                             </span>
                         </td>
                         <td class="px-4 py-3">
@@ -1572,7 +1635,7 @@
                                 <span class="text-xs text-gray-600">${progress.toFixed(0)}%</span>
                             </div>
                         </td>
-                        <td class="px-4 py-3 text-sm text-gray-600">${user.completion_date || '-'}</td>
+                        <td class="px-4 py-3 text-sm text-gray-600">${h(user.completion_date || '-')}</td>
                     </tr>
                 `;
             }).join('');
@@ -1609,6 +1672,7 @@
             document.getElementById('editAssignmentModal').classList.remove('hidden');
             document.getElementById('editAssignmentLoading').classList.remove('hidden');
             document.getElementById('editAssignmentContent').classList.add('hidden');
+            document.getElementById('editAssignmentFooter').classList.add('hidden');
 
             try {
                 currentEditAssignmentId = assignmentId;
@@ -1634,9 +1698,10 @@
                 // Render users with current selection
                 renderEditUsers(assignmentData.assignment.user_emails);
 
-                // Hide loading, show content
+                // Hide loading, show content + footer
                 document.getElementById('editAssignmentLoading').classList.add('hidden');
                 document.getElementById('editAssignmentContent').classList.remove('hidden');
+                document.getElementById('editAssignmentFooter').classList.remove('hidden');
             } catch (error) {
                 console.error('Error loading assignment for edit:', error);
                 showNotification('Error', 'Error loading assignment', 'error');
@@ -1646,6 +1711,8 @@
 
         function closeEditAssignment() {
             document.getElementById('editAssignmentModal').classList.add('hidden');
+            document.getElementById('editAssignmentContent').classList.add('hidden');
+            document.getElementById('editAssignmentFooter').classList.add('hidden');
             currentEditAssignmentId = null;
             document.getElementById('editUserSearchInput').value = '';
         }
@@ -1662,11 +1729,15 @@
                 const isChecked = selectedEmails.includes(user.email);
                 return `
                     <label class="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
-                        <input type="checkbox" value="${user.email}" class="edit-user-checkbox" onchange="updateEditSelectionCounter()" ${isChecked ? 'checked' : ''}>
-                        <span class="text-sm flex-1">${user.email}${user.name ? ` (${user.name})` : ''}</span>
+                        <input type="checkbox" value="${h(user.email)}" class="edit-user-checkbox" ${isChecked ? 'checked' : ''}>
+                        <span class="text-sm flex-1">${h(user.email)}${user.name ? ` (${h(user.name)})` : ''}</span>
                     </label>
                 `;
             }).join('');
+
+            container.querySelectorAll('.edit-user-checkbox').forEach(cb => {
+                cb.addEventListener('change', () => updateEditSelectionCounter());
+            });
 
             updateEditSelectionCounter();
         }

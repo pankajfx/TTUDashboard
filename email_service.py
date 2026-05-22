@@ -5,9 +5,13 @@ Handles sending email notifications for course assignments and reminders
 
 import smtplib
 import logging
+import os
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -16,8 +20,8 @@ logger = logging.getLogger(__name__)
 # SMTP Configuration
 SMTP_SERVER = "smtp.office365.com"
 SMTP_PORT = 587
-SMTP_USERNAME = "noc.mis@nelco.in"
-SMTP_PASSWORD = "rvhgdskxyqgzsqrr"
+SMTP_USERNAME = os.environ.get('SMTP_USERNAME', '')
+SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
 SENDER_ADDRESS = SMTP_USERNAME
 
 

@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Safety & Health Excellence - Course Analytics Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.min.css') }}">
+    <meta name="csrf-token" content="{{ csrf_token }}">
     <script src="{{ url_for('static', filename='js/echarts.min.js') }}"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -266,6 +267,7 @@
         .modal-table-container {
             flex: 1;
             overflow-y: auto;
+            min-height: 0;
             padding: 0 1.5rem 1.5rem 1.5rem;
         }
         
@@ -705,8 +707,8 @@
                             User View
                         </button>
                     </div>
-                    <button onclick="exportStatusToExcel()" 
-                        class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium flex items-center gap-2" style="margin-right:40rem;">
+                    <button onclick="exportStatusToExcel()"
+                        class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium flex items-center gap-2">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                         </svg>
@@ -736,6 +738,27 @@
     </div>
 
     <script>
+        // HTML escape helper — always use h() when inserting data into innerHTML
+        function h(str) {
+            return String(str ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        // Attach CSRF token to every mutating fetch automatically
+        const _csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+        const _origFetch = window.fetch;
+        window.fetch = function(url, opts = {}) {
+            const method = (opts.method || 'GET').toUpperCase();
+            if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+                opts.headers = Object.assign({ 'X-CSRF-Token': _csrfToken }, opts.headers || {});
+            }
+            return _origFetch(url, opts);
+        };
+
         let coursesData = [];
         let usersData = [];
         let sortDirection = {};
@@ -806,7 +829,7 @@
                 
                 return true;
             } catch (error) {
-                document.getElementById('loading').innerHTML = `<div class="text-red-600"><p class="text-xl font-semibold">Error loading data</p><p class="mt-2">${error.message}</p></div>`;
+                document.getElementById('loading').innerHTML = `<div class="text-red-600"><p class="text-xl font-semibold">Error loading data</p><p class="mt-2">${h(error.message)}</p></div>`;
                 return false;
             }
         }
@@ -897,40 +920,46 @@
             const tbody = document.getElementById(`table-${type}`);
             if (type === 'courses') {
                 tbody.innerHTML = data.map(course => `
-                    <tr class="hover:bg-gray-50 cursor-pointer" onclick="viewCourseDetails('${course.course_name.replace(/'/g, "\\'")}')">
-                        <td class="px-6 py-4 text-sm font-medium text-gray-900">${course.course_name}</td>
-                        <td class="px-6 py-4 text-sm text-gray-500">${course.total_users}</td>
-                        <td class="px-6 py-4 text-sm text-green-600 font-medium">${course.completed}</td>
-                        <td class="px-6 py-4 text-sm text-yellow-600">${course.in_progress}</td>
-                        <td class="px-6 py-4 text-sm text-gray-500">${course.not_started}</td>
+                    <tr class="hover:bg-gray-50 cursor-pointer" data-course="${h(course.course_name)}">
+                        <td class="px-6 py-4 text-sm font-medium text-gray-900">${h(course.course_name)}</td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${h(course.total_users)}</td>
+                        <td class="px-6 py-4 text-sm text-green-600 font-medium">${h(course.completed)}</td>
+                        <td class="px-6 py-4 text-sm text-yellow-600">${h(course.in_progress)}</td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${h(course.not_started)}</td>
                         <td class="px-6 py-4 text-sm text-gray-900">
                             <div class="flex items-center">
                                 <div class="w-16 bg-gray-200 rounded-full h-2 mr-2">
-                                    <div class="bg-blue-600 h-2 rounded-full" style="width: ${course.completion_rate}%"></div>
+                                    <div class="bg-blue-600 h-2 rounded-full" style="width: ${parseFloat(course.completion_rate)}%"></div>
                                 </div>
-                                <span>${course.completion_rate}%</span>
+                                <span>${h(course.completion_rate)}%</span>
                             </div>
                         </td>
                     </tr>
                 `).join('');
+                tbody.querySelectorAll('tr[data-course]').forEach(row => {
+                    row.addEventListener('click', () => viewCourseDetails(row.dataset.course));
+                });
             } else {
                 tbody.innerHTML = data.map(user => `
-                    <tr class="hover:bg-gray-50 cursor-pointer" onclick="viewUserDetails('${user.user_email.replace(/'/g, "\\'")}', '${user.user_name.replace(/'/g, "\\'")}')">
-                        <td class="px-6 py-4 text-sm font-medium text-gray-900">${user.user_name}</td>
-                        <td class="px-6 py-4 text-sm text-gray-500">${user.user_email}</td>
-                        <td class="px-6 py-4 text-sm text-gray-500">${user.total_courses}</td>
-                        <td class="px-6 py-4 text-sm text-green-600 font-medium">${user.completed_courses}</td>
-                        <td class="px-6 py-4 text-sm text-yellow-600">${user.in_progress}</td>
+                    <tr class="hover:bg-gray-50 cursor-pointer" data-email="${h(user.user_email)}" data-name="${h(user.user_name)}">
+                        <td class="px-6 py-4 text-sm font-medium text-gray-900">${h(user.user_name)}</td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${h(user.user_email)}</td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${h(user.total_courses)}</td>
+                        <td class="px-6 py-4 text-sm text-green-600 font-medium">${h(user.completed_courses)}</td>
+                        <td class="px-6 py-4 text-sm text-yellow-600">${h(user.in_progress)}</td>
                         <td class="px-6 py-4 text-sm text-gray-900">
                             <div class="flex items-center">
                                 <div class="w-16 bg-gray-200 rounded-full h-2 mr-2">
-                                    <div class="bg-blue-600 h-2 rounded-full" style="width: ${user.completion_rate}%"></div>
+                                    <div class="bg-blue-600 h-2 rounded-full" style="width: ${parseFloat(user.completion_rate)}%"></div>
                                 </div>
-                                <span>${user.completion_rate}%</span>
+                                <span>${h(user.completion_rate)}%</span>
                             </div>
                         </td>
                     </tr>
                 `).join('');
+                tbody.querySelectorAll('tr[data-email]').forEach(row => {
+                    row.addEventListener('click', () => viewUserDetails(row.dataset.email, row.dataset.name));
+                });
             }
         }
 
@@ -1236,12 +1265,12 @@
                 const tbody = document.getElementById('courseModalBody');
                 tbody.innerHTML = data.users.map(user => `
                     <tr>
-                        <td class="px-6 py-4 text-sm text-gray-900">${user.user_name}</td>
-                        <td class="px-6 py-4 text-sm text-gray-500">${user.user_email}</td>
-                        <td class="px-6 py-4 text-sm text-gray-900">${user.completion_percentage}%</td>
-                        <td class="px-6 py-4 text-sm"><span class="px-2 py-1 text-xs rounded ${user.completion_status === 'Completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">${user.completion_status}</span></td>
-                        <td class="px-6 py-4 text-sm text-gray-500">${user.activity_status}</td>
-                        <td class="px-6 py-4 text-sm text-gray-500">${user.completion_date || 'N/A'}</td>
+                        <td class="px-6 py-4 text-sm text-gray-900">${h(user.user_name)}</td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${h(user.user_email)}</td>
+                        <td class="px-6 py-4 text-sm text-gray-900">${h(user.completion_percentage)}%</td>
+                        <td class="px-6 py-4 text-sm"><span class="px-2 py-1 text-xs rounded ${user.completion_status === 'Completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">${h(user.completion_status)}</span></td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${h(user.activity_status)}</td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${h(user.completion_date || 'N/A')}</td>
                     </tr>
                 `).join('');
                 
@@ -1269,11 +1298,11 @@
                 const tbody = document.getElementById('userModalBody');
                 tbody.innerHTML = data.courses.map(course => `
                     <tr>
-                        <td class="px-6 py-4 text-sm text-gray-900">${course.course_name}</td>
-                        <td class="px-6 py-4 text-sm text-gray-900">${course.completion_percentage}%</td>
-                        <td class="px-6 py-4 text-sm"><span class="px-2 py-1 text-xs rounded ${course.completion_status === 'Completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">${course.completion_status}</span></td>
-                        <td class="px-6 py-4 text-sm text-gray-500">${course.activity_status}</td>
-                        <td class="px-6 py-4 text-sm text-gray-500">${course.completion_date || 'N/A'}</td>
+                        <td class="px-6 py-4 text-sm text-gray-900">${h(course.course_name)}</td>
+                        <td class="px-6 py-4 text-sm text-gray-900">${h(course.completion_percentage)}%</td>
+                        <td class="px-6 py-4 text-sm"><span class="px-2 py-1 text-xs rounded ${course.completion_status === 'Completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">${h(course.completion_status)}</span></td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${h(course.activity_status)}</td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${h(course.completion_date || 'N/A')}</td>
                     </tr>
                 `).join('');
                 
@@ -1440,10 +1469,10 @@
             Object.keys(courseMap).sort().forEach(courseName => {
                 const users = courseMap[courseName];
                 html += `
-                    <div class="border border-gray-200 rounded-lg overflow-hidden">
-                        <div class="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-4 py-3">
-                            <h3 class="font-bold text-lg">${courseName}</h3>
-                            <p class="text-sm opacity-90">${users.length} user(s) ${statusName.toLowerCase()}</p>
+                    <div class="border border-gray-100 rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+                        <div class="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-5 py-4 flex items-center justify-between gap-3">
+                            <h3 class="font-bold text-base leading-tight truncate">${h(courseName)}</h3>
+                            <span class="flex-shrink-0 bg-white/20 text-white text-xs font-semibold px-3 py-1 rounded-full whitespace-nowrap">${h(users.length)} user${users.length !== 1 ? 's' : ''}</span>
                         </div>
                         <div class="overflow-x-auto">
                             <table class="min-w-full divide-y divide-gray-200">
@@ -1457,18 +1486,18 @@
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-200">
                 `;
-                
+
                 users.forEach(user => {
                     const progress = parseFloat(user.percentage);
                     const progressColor = progress >= 75 ? 'bg-green-500' : progress >= 50 ? 'bg-yellow-500' : 'bg-red-500';
-                    const statusColor = user.status === 'Completed' ? 'bg-green-100 text-green-800' : 
-                                       user.status === 'Current' ? 'bg-yellow-100 text-yellow-800' : 
+                    const statusColor = user.status === 'Completed' ? 'bg-green-100 text-green-800' :
+                                       user.status === 'Current' ? 'bg-yellow-100 text-yellow-800' :
                                        'bg-gray-100 text-gray-800';
-                    
+
                     html += `
                         <tr class="hover:bg-gray-50">
-                            <td class="px-4 py-3 text-sm text-gray-900">${user.userName}</td>
-                            <td class="px-4 py-3 text-sm text-gray-500">${user.userEmail}</td>
+                            <td class="px-4 py-3 text-sm text-gray-900">${h(user.userName)}</td>
+                            <td class="px-4 py-3 text-sm text-gray-500">${h(user.userEmail)}</td>
                             <td class="px-4 py-3">
                                 <div class="flex items-center gap-2">
                                     <div class="flex-1 bg-gray-200 rounded-full h-2">
@@ -1478,7 +1507,7 @@
                                 </div>
                             </td>
                             <td class="px-4 py-3">
-                                <span class="px-2 py-1 text-xs rounded ${statusColor}">${user.status}</span>
+                                <span class="px-2 py-1 text-xs rounded ${statusColor}">${h(user.status)}</span>
                             </td>
                         </tr>
                     `;
@@ -1524,10 +1553,13 @@
             Object.keys(userMap).sort().forEach(userEmail => {
                 const userData = userMap[userEmail];
                 html += `
-                    <div class="border border-gray-200 rounded-lg overflow-hidden">
-                        <div class="bg-gradient-to-r from-blue-500 to-cyan-600 text-white px-4 py-3">
-                            <h3 class="font-bold text-lg">${userData.name}</h3>
-                            <p class="text-sm opacity-90">${userEmail} - ${userData.courses.length} course(s) ${statusName.toLowerCase()}</p>
+                    <div class="border border-gray-100 rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+                        <div class="bg-gradient-to-r from-blue-500 to-cyan-600 text-white px-5 py-4 flex items-center justify-between gap-3">
+                            <div class="min-w-0">
+                                <h3 class="font-bold text-base leading-tight truncate">${h(userData.name)}</h3>
+                                <p class="text-xs opacity-80 truncate mt-0.5">${h(userEmail)}</p>
+                            </div>
+                            <span class="flex-shrink-0 bg-white/20 text-white text-xs font-semibold px-3 py-1 rounded-full whitespace-nowrap">${h(userData.courses.length)} course${userData.courses.length !== 1 ? 's' : ''}</span>
                         </div>
                         <div class="overflow-x-auto">
                             <table class="min-w-full divide-y divide-gray-200">
@@ -1540,17 +1572,17 @@
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-200">
                 `;
-                
+
                 userData.courses.forEach(course => {
                     const progress = parseFloat(course.percentage);
                     const progressColor = progress >= 75 ? 'bg-green-500' : progress >= 50 ? 'bg-yellow-500' : 'bg-red-500';
-                    const statusColor = course.status === 'Completed' ? 'bg-green-100 text-green-800' : 
-                                       course.status === 'Current' ? 'bg-yellow-100 text-yellow-800' : 
+                    const statusColor = course.status === 'Completed' ? 'bg-green-100 text-green-800' :
+                                       course.status === 'Current' ? 'bg-yellow-100 text-yellow-800' :
                                        'bg-gray-100 text-gray-800';
-                    
+
                     html += `
                         <tr class="hover:bg-gray-50">
-                            <td class="px-4 py-3 text-sm text-gray-900">${course.courseName}</td>
+                            <td class="px-4 py-3 text-sm text-gray-900">${h(course.courseName)}</td>
                             <td class="px-4 py-3">
                                 <div class="flex items-center gap-2">
                                     <div class="flex-1 bg-gray-200 rounded-full h-2">
@@ -1560,7 +1592,7 @@
                                 </div>
                             </td>
                             <td class="px-4 py-3">
-                                <span class="px-2 py-1 text-xs rounded ${statusColor}">${course.status}</span>
+                                <span class="px-2 py-1 text-xs rounded ${statusColor}">${h(course.status)}</span>
                             </td>
                         </tr>
                     `;

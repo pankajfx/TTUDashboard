@@ -1,0 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+h-full border border-gray-200 rounded-lg overflow-hidden flex flex-col{
+    height:270px;
+    overflow:auto;
+}

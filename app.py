@@ -1,12 +1,13 @@
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for
 import requests
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import os
 import logging
 import re
 import uuid
+import secrets
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -16,35 +17,194 @@ import openpyxl
 from io import BytesIO
 import threading
 import time
+from dotenv import load_dotenv
+from logging.handlers import RotatingFileHandler
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+load_dotenv()
+
+# Configure logging — console + persistent rotating file (audit trail).
+# Attach handlers directly to the root logger and clear any pre-existing ones
+# (e.g. email_service.py calls logging.basicConfig() at import time, which would
+# otherwise make our basicConfig a no-op and silently drop the file handler).
+os.makedirs('logs', exist_ok=True)
+_log_format = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s')
+
+_file_handler = RotatingFileHandler('logs/app.log', maxBytes=1_000_000, backupCount=5, encoding='utf-8')
+_file_handler.setFormatter(_log_format)
+_file_handler.setLevel(logging.INFO)
+
+_console_handler = logging.StreamHandler()
+_console_handler.setFormatter(_log_format)
+
+_root_logger = logging.getLogger()
+_root_logger.setLevel(logging.INFO)
+for _h in list(_root_logger.handlers):
+    _root_logger.removeHandler(_h)
+_root_logger.addHandler(_console_handler)
+_root_logger.addHandler(_file_handler)
+
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-change-this-to-something-random-and-secure-12345'  # Change this!
+app.secret_key = os.environ['SECRET_KEY']
 
-API_URL = "https://www3.tcsion.com/iONBizServices/iONWebService?servicekey=WaJkcnPwTLXzm%2FQICFcn3w%3D%3D&s=4CnZ%2FgPXtzK8efa1RmpmLg%3D%3D&u=TIX8NflllNXow1Ic/ZoBmze/jwyVQjfsnDydzQqFPGDD79kH58CkQVDgHATBFfbr"
-USE_LOCAL_DATA = False  # Set to False to use live API (URL confirmed working in test_api_connection.py)
+# Session security
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('HTTPS_ONLY', 'false').lower() == 'true'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)
+app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5 MB upload limit
+
+API_URL = os.environ['TCS_ION_API_URL']
+USE_LOCAL_DATA = os.environ.get('USE_LOCAL_DATA', 'false').lower() == 'true'
 
 # API timeout configuration (in seconds)
 # The API typically takes 3+ minutes to respond, so set timeout accordingly
-API_TIMEOUT = 200  # 200 seconds = 3 minutes 20 seconds
+API_TIMEOUT = 360  # 360 seconds = 6 minutes (API can take 3-5 min; give headroom)
 
 # Cache configuration
-AUTO_REFRESH_INTERVAL_MINUTES = 5  # Auto-refresh cache every 15 minutes
+AUTO_REFRESH_INTERVAL_MINUTES = 5  # Auto-refresh cache every 5 minutes
 CACHE_FILE = 'data/api_cache.json'  # Persistent cache file
 _data_cache = None
 _cache_timestamp = None
 _cache_lock = threading.Lock()
 _refresh_in_progress = False
 
-# Secure password storage (hashed)
-# To add users: generate_password_hash('your_password')
+# Secure password storage (hashed, loaded from env)
 USERS = {
-    'admin': generate_password_hash('admin123'),  # Change these credentials!
-    'user': generate_password_hash('user123')     # Add more users as needed
+    'admin': generate_password_hash(os.environ['ADMIN_PASSWORD']),
+    'user': generate_password_hash(os.environ['USER_PASSWORD']),
 }
+USER_ROLES = {'admin': 'admin', 'user': 'user'}
+
+# Login rate limiting: max 10 attempts per 60 seconds per IP
+_login_attempts: dict = {}
+_login_attempts_lock = threading.Lock()
+_LOGIN_MAX = 10
+_LOGIN_WINDOW = 60  # seconds
+
+
+def _is_rate_limited(ip: str) -> bool:
+    now = time.time()
+    with _login_attempts_lock:
+        attempts = _login_attempts.get(ip, [])
+        attempts = [t for t in attempts if now - t < _LOGIN_WINDOW]
+        _login_attempts[ip] = attempts
+        if len(attempts) >= _LOGIN_MAX:
+            return True
+        attempts.append(now)
+        _login_attempts[ip] = attempts
+        return False
+
+
+# Per-username soft lockout: N consecutive failures → temporary cooldown
+_failed_logins: dict = {}  # username -> {'count': int, 'locked_until': float}
+_failed_logins_lock = threading.Lock()
+_LOCKOUT_THRESHOLD = 5
+_LOCKOUT_SECONDS = 15 * 60  # 15-minute cooldown
+
+
+def _is_locked_out(username: str) -> bool:
+    if not username:
+        return False
+    with _failed_logins_lock:
+        rec = _failed_logins.get(username)
+        if not rec:
+            return False
+        if rec.get('locked_until', 0) > time.time():
+            return True
+        if rec.get('locked_until', 0):  # cooldown expired → clear
+            _failed_logins.pop(username, None)
+        return False
+
+
+def _record_failed_login(username: str):
+    if not username:
+        return
+    with _failed_logins_lock:
+        rec = _failed_logins.setdefault(username, {'count': 0, 'locked_until': 0})
+        rec['count'] += 1
+        if rec['count'] >= _LOCKOUT_THRESHOLD:
+            rec['locked_until'] = time.time() + _LOCKOUT_SECONDS
+            rec['count'] = 0
+
+
+def _reset_failed_login(username: str):
+    with _failed_logins_lock:
+        _failed_logins.pop(username, None)
+
+
+def _is_valid_excel(file_bytes: bytes) -> bool:
+    """Verify file content is a real Excel workbook by magic bytes,
+    not just the filename extension. .xlsx = ZIP (PK..); .xls = OLE2."""
+    return (
+        file_bytes[:4] == b'PK\x03\x04'
+        or file_bytes[:8] == b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1'
+    )
+
+
+# CSRF helpers
+def _get_csrf_token() -> str:
+    if 'csrf_token' not in session:
+        session['csrf_token'] = secrets.token_hex(32)
+    return session['csrf_token']
+
+
+@app.context_processor
+def inject_csrf_token():
+    return {'csrf_token': _get_csrf_token()}
+
+
+def csrf_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token')
+        if not token or token != session.get('csrf_token'):
+            return jsonify({'error': 'CSRF validation failed'}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+def json_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not request.is_json:
+            return jsonify({'error': 'Content-Type must be application/json'}), 415
+        return f(*args, **kwargs)
+    return decorated
+
+
+# Security headers
+@app.after_request
+def add_security_headers(response):
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "font-src 'self'; "
+        "connect-src 'self';"
+    )
+    return response
+
+
+# Session idle timeout (30 minutes of inactivity clears session)
+@app.before_request
+def check_session_idle():
+    if 'logged_in' in session:
+        last_active = session.get('_last_active')
+        if last_active:
+            idle_seconds = (datetime.now() - datetime.fromisoformat(last_active)).total_seconds()
+            if idle_seconds > 1800:
+                session.clear()
+                return redirect(url_for('login'))
+        session['_last_active'] = datetime.now().isoformat()
+
 
 # Login required decorator
 def login_required(f):
@@ -55,13 +215,14 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+
 # Admin required decorator
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'logged_in' not in session:
             return redirect(url_for('login'))
-        if session.get('username') != 'admin':
+        if session.get('role') != 'admin':
             return jsonify({'error': 'Admin access required'}), 403
         return f(*args, **kwargs)
     return decorated_function
@@ -141,16 +302,32 @@ def sync_users_from_api():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        
+        ip = request.remote_addr
+        if _is_rate_limited(ip):
+            logger.warning(f"Rate limit exceeded for login from {ip}")
+            return render_template('login.html', error='Too many login attempts. Please wait a moment.'), 429
+
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+
+        if _is_locked_out(username):
+            logger.warning(f"Login blocked: account '{username}' temporarily locked (from {ip})")
+            return render_template('login.html', error='Account temporarily locked due to repeated failed attempts. Try again later.'), 429
+
         if username in USERS and check_password_hash(USERS[username], password):
+            _reset_failed_login(username)
+            session.clear()
+            session.permanent = True
             session['logged_in'] = True
             session['username'] = username
+            session['role'] = USER_ROLES.get(username, 'user')
+            session['_last_active'] = datetime.now().isoformat()
             return redirect(url_for('index'))
         else:
+            _record_failed_login(username)
+            logger.warning(f"Failed login attempt for user '{username}' from {ip}")
             return render_template('login.html', error='Invalid username or password')
-    
+
     return render_template('login.html')
 
 @app.route('/logout')
@@ -177,6 +354,8 @@ def get_users():
 
 @app.route('/api/settings/users', methods=['POST'])
 @admin_required
+@csrf_required
+@json_required
 def add_user():
     """Add a new user"""
     data = request.get_json()
@@ -209,6 +388,7 @@ def add_user():
 
 @app.route('/api/settings/users/bulk-upload', methods=['POST'])
 @admin_required
+@csrf_required
 def bulk_upload_users():
     """Bulk upload users from Excel file"""
     if 'file' not in request.files:
@@ -220,18 +400,22 @@ def bulk_upload_users():
     
     if not file.filename.endswith(('.xlsx', '.xls')):
         return jsonify({'error': 'Invalid file format. Please upload an Excel file (.xlsx or .xls)'}), 400
-    
+
+    file_bytes = file.read()
+    if not _is_valid_excel(file_bytes):
+        return jsonify({'error': 'Invalid file content. File is not a valid Excel workbook.'}), 400
+
     try:
         # Read Excel file
-        workbook = openpyxl.load_workbook(BytesIO(file.read()))
+        workbook = openpyxl.load_workbook(BytesIO(file_bytes))
         sheet = workbook.active
-        
+
         # Email validation regex
         email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-        
+
         valid_emails = []
         invalid_emails = []
-        
+
         # Parse rows for emails (check first column)
         for row in sheet.iter_rows(min_row=1, values_only=True):
             if row[0]:  # If first cell has value
@@ -240,7 +424,7 @@ def bulk_upload_users():
                     valid_emails.append(email)
                 else:
                     invalid_emails.append(email)
-        
+
         if not valid_emails:
             return jsonify({
                 'error': 'No valid email addresses found in file',
@@ -287,11 +471,12 @@ def bulk_upload_users():
             return jsonify({'error': 'Failed to save users'}), 500
             
     except Exception as e:
-        logger.error(f"Error processing Excel file: {str(e)}")
-        return jsonify({'error': f'Error processing file: {str(e)}'}), 500
+        logger.error(f"Error processing Excel file (users): {e}")
+        return jsonify({'error': 'Failed to process file'}), 500
 
 @app.route('/api/settings/users/<email>', methods=['DELETE'])
 @admin_required
+@csrf_required
 def delete_user(email):
     """Delete a user"""
     users_data = load_json_file(USERS_FILE, {'users': []})
@@ -318,7 +503,8 @@ def get_available_courses():
         courses.sort()
         return jsonify({'courses': courses})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error loading courses: {e}")
+        return jsonify({'error': 'Failed to load courses'}), 500
 
 # ── Email Job Tracking ────────────────────────────────────────────────────────
 # Each job: {total, sent, failed, status: 'running'|'completed'}
@@ -417,11 +603,13 @@ def get_assignments():
 
 @app.route('/api/settings/assignments', methods=['POST'])
 @admin_required
+@csrf_required
+@json_required
 def create_assignment():
     """Create a new course assignment"""
     data = request.get_json()
     course_name = data.get('course_name')
-    user_emails = data.get('user_emails', [])
+    user_emails = data.get('user_emails', [])[:500]
     deadline = data.get('deadline')
     notify_email = data.get('notify_email', False)
 
@@ -547,10 +735,11 @@ def get_assignment_details(assignment_id):
         })
     except Exception as e:
         logger.error(f"Error getting assignment details: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Failed to load assignment details'}), 500
 
 @app.route('/api/settings/assignments/<int:assignment_id>/remind', methods=['POST'])
 @admin_required
+@csrf_required
 def send_assignment_reminders(assignment_id):
     """Send reminder emails to incomplete users"""
     try:
@@ -630,17 +819,19 @@ def send_assignment_reminders(assignment_id):
         })
     except Exception as e:
         logger.error(f"Error sending reminders: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Failed to send reminders'}), 500
 
 @app.route('/api/settings/assignments/<int:assignment_id>', methods=['PUT'])
 @admin_required
+@csrf_required
+@json_required
 def update_assignment(assignment_id):
     """Update assignment (add/remove users)"""
     try:
         from email_service import send_course_assignment_email, send_course_removal_email
         
         data = request.get_json()
-        new_user_emails = data.get('user_emails', [])
+        new_user_emails = data.get('user_emails', [])[:500]
         notify_email = data.get('notify_email', False)
 
         # Load assignment
@@ -691,10 +882,11 @@ def update_assignment(assignment_id):
         })
     except Exception as e:
         logger.error(f"Error updating assignment: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Failed to update assignment'}), 500
 
 @app.route('/api/settings/assignments/<int:assignment_id>', methods=['DELETE'])
 @admin_required
+@csrf_required
 def delete_assignment(assignment_id):
     """Delete a course assignment"""
     assignments_data = load_json_file(ASSIGNMENTS_FILE, {'assignments': []})
@@ -711,6 +903,7 @@ def delete_assignment(assignment_id):
 
 @app.route('/api/settings/assignments/bulk-upload', methods=['POST'])
 @admin_required
+@csrf_required
 def bulk_upload_assignment():
     """Bulk upload users for course assignment from Excel file"""
     if 'file' not in request.files:
@@ -729,18 +922,22 @@ def bulk_upload_assignment():
     
     if not file.filename.endswith(('.xlsx', '.xls')):
         return jsonify({'error': 'Invalid file format. Please upload an Excel file (.xlsx or .xls)'}), 400
-    
+
+    file_bytes = file.read()
+    if not _is_valid_excel(file_bytes):
+        return jsonify({'error': 'Invalid file content. File is not a valid Excel workbook.'}), 400
+
     try:
         # Read Excel file
-        workbook = openpyxl.load_workbook(BytesIO(file.read()))
+        workbook = openpyxl.load_workbook(BytesIO(file_bytes))
         sheet = workbook.active
-        
+
         # Email validation regex
         email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-        
+
         valid_emails = []
         invalid_emails = []
-        
+
         # Parse rows for emails (check first column)
         for row in sheet.iter_rows(min_row=1, values_only=True):
             if row[0]:  # If first cell has value
@@ -749,7 +946,7 @@ def bulk_upload_assignment():
                     valid_emails.append(email)
                 else:
                     invalid_emails.append(email)
-        
+
         if not valid_emails:
             return jsonify({
                 'error': 'No valid email addresses found in file',
@@ -820,8 +1017,8 @@ def bulk_upload_assignment():
         }), 201
             
     except Exception as e:
-        logger.error(f"Error processing Excel file: {str(e)}")
-        return jsonify({'error': f'Error processing file: {str(e)}'}), 500
+        logger.error(f"Error processing Excel file (assignments): {e}")
+        return jsonify({'error': 'Failed to process file'}), 500
 
 @app.route('/')
 @login_required
@@ -873,6 +1070,7 @@ def get_status():
 
 @app.route('/api/refresh-cache', methods=['POST'])
 @login_required
+@csrf_required
 def refresh_cache_endpoint():
     """Trigger manual cache refresh (non-blocking)"""
     global _refresh_in_progress
@@ -963,16 +1161,20 @@ def refresh_cache_background():
             _refresh_in_progress = False
 
 def cache_refresh_scheduler():
-    """Background thread that refreshes cache every N minutes"""
+    """Background thread that refreshes cache every N minutes.
+    The API fetch itself is dispatched into a separate thread so the sleep
+    interval is never shifted by a slow API response.
+    """
     logger.info(f"Cache refresh scheduler started (interval: {AUTO_REFRESH_INTERVAL_MINUTES} minutes)")
-    
+
     while True:
-        try:
-            time.sleep(AUTO_REFRESH_INTERVAL_MINUTES * 60)
-            if not USE_LOCAL_DATA:
-                refresh_cache_background()
-        except Exception as e:
-            logger.error(f"Error in cache scheduler: {e}")
+        time.sleep(AUTO_REFRESH_INTERVAL_MINUTES * 60)
+        if not USE_LOCAL_DATA:
+            try:
+                t = threading.Thread(target=refresh_cache_background, daemon=True)
+                t.start()
+            except Exception as e:
+                logger.error(f"Error in cache scheduler: {e}")
 
 def initialize_cache():
     """Initialize cache on server startup"""
@@ -1043,22 +1245,20 @@ def get_data():
     try:
         data = load_data()
         return jsonify(data)
-    except Exception as e:
+    except Exception:
         import traceback
-        error_details = traceback.format_exc()
-        print(f"Error in get_data: {error_details}")
-        return jsonify({"error": str(e), "details": error_details}), 500
+        logger.error(f"Error in get_data: {traceback.format_exc()}")
+        return jsonify({"error": "Failed to load data"}), 500
 
 @app.route('/api/raw-data')
 @login_required
 def get_raw_data():
-    """Return raw data for detailed analysis"""
     try:
         data = load_data()
         return jsonify({'data': data})
     except Exception as e:
-        logger.error(f"Error loading raw data: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error loading raw data: {e}")
+        return jsonify({'error': 'Failed to load data'}), 500
 
 @app.route('/api/summary')
 @login_required
@@ -1179,11 +1379,10 @@ def get_summary():
             'courses': course_list,
             'users': user_list
         })
-    except Exception as e:
+    except Exception:
         import traceback
-        error_details = traceback.format_exc()
-        print(f"Error in get_summary: {error_details}")
-        return jsonify({"error": str(e), "details": error_details}), 500
+        logger.error(f"Error in get_summary: {traceback.format_exc()}")
+        return jsonify({"error": "Failed to load summary"}), 500
 
 @app.route('/api/course/<path:course_name>')
 @login_required
@@ -1212,11 +1411,10 @@ def get_course_details(course_name):
             'course_name': course_name,
             'users': list(user_progress.values())
         })
-    except Exception as e:
+    except Exception:
         import traceback
-        error_details = traceback.format_exc()
-        print(f"Error in get_course_details: {error_details}")
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Error in get_course_details: {traceback.format_exc()}")
+        return jsonify({"error": "Failed to load course details"}), 500
 
 @app.route('/api/user/<path:user_email>')
 @login_required
@@ -1253,13 +1451,15 @@ def get_user_details(user_email):
             'user_email': user_email,
             'courses': courses_list
         })
-    except Exception as e:
+    except Exception:
         import traceback
-        error_details = traceback.format_exc()
-        print(f"Error in get_user_details: {error_details}")
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Error in get_user_details: {traceback.format_exc()}")
+        return jsonify({"error": "Failed to load user details"}), 500
 
 if __name__ == '__main__':
-    # Initialize cache system on startup
+    # use_reloader=False is required: with the default reloader Flask spawns a
+    # child subprocess for requests and a parent watcher process. initialize_cache()
+    # would run only in the parent, leaving the child with no scheduler and stale
+    # data forever. Disabling the reloader keeps a single process.
     initialize_cache()
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5000, use_reloader=False)

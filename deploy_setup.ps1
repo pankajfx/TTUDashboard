@@ -63,6 +63,26 @@ Write-Host ""
 Write-Host "Installing Waitress WSGI server for production..." -ForegroundColor Green
 pip install waitress
 
+# Restrict ACLs on sensitive paths (SEC-22): data/ holds the user registry,
+# assignments, and cached PII; .env holds all secrets. Lock both so only
+# SYSTEM, Administrators, and the service account can read/write them.
+Write-Host ""
+Write-Host "Hardening file permissions on data/ and .env..." -ForegroundColor Green
+$DATA_DIR = "$PROJECT_DIR\data"
+$ENV_FILE = "$PROJECT_DIR\.env"
+if (-not (Test-Path $DATA_DIR)) { New-Item -ItemType Directory -Path $DATA_DIR | Out-Null }
+# Disable inheritance (drop inherited broad ACEs) then grant a minimal set
+icacls $DATA_DIR /inheritance:r | Out-Null
+icacls $DATA_DIR /grant:r "SYSTEM:(OI)(CI)F" "BUILTIN\Administrators:(OI)(CI)F" "$env:USERNAME:(OI)(CI)F" | Out-Null
+Write-Host "  data/ locked to SYSTEM, Administrators, $env:USERNAME" -ForegroundColor Yellow
+if (Test-Path $ENV_FILE) {
+    icacls $ENV_FILE /inheritance:r | Out-Null
+    icacls $ENV_FILE /grant:r "SYSTEM:F" "BUILTIN\Administrators:F" "$env:USERNAME:F" | Out-Null
+    Write-Host "  .env locked to SYSTEM, Administrators, $env:USERNAME" -ForegroundColor Yellow
+} else {
+    Write-Host "  WARNING: .env not found — create it from .env.example before running." -ForegroundColor Red
+}
+
 # Create production run script
 Write-Host ""
 Write-Host "Creating production run script..." -ForegroundColor Green
