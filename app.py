@@ -63,7 +63,7 @@ USE_LOCAL_DATA = os.environ.get('USE_LOCAL_DATA', 'false').lower() == 'true'
 API_TIMEOUT = 360  # 360 seconds = 6 minutes (API can take 3-5 min; give headroom)
 
 # Cache configuration
-AUTO_REFRESH_INTERVAL_MINUTES = 5  # Auto-refresh cache every 5 minutes
+AUTO_REFRESH_INTERVAL_MINUTES = 30  # Auto-refresh cache every 5 minutes
 CACHE_FILE = 'data/api_cache.json'  # Persistent cache file
 _data_cache = None
 _cache_timestamp = None

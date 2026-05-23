@@ -60,6 +60,22 @@
         .input-field {
             border: 2px solid rgba(102, 126, 234, 0.2);
             transition: all 0.3s ease;
+            box-sizing: border-box;
+            max-width: 100%;
+            min-width: 0;
+            width: 100%;
+        }
+
+        input[type="date"].input-field {
+            -webkit-appearance: none;
+            appearance: none;
+            display: block;
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+            box-sizing: border-box !important;
+            height: 42px;
+            line-height: 1.5;
         }
 
         .input-field:focus {
@@ -91,6 +107,18 @@
             transform: translateX(4px);
         }
         
+        /* Mobile modal: slide up from bottom as a sheet */
+        @media (max-width: 640px) {
+            .fixed.inset-0.flex.items-center { align-items: flex-end !important; }
+            .card.max-w-2xl, .card.max-w-6xl, .card.max-w-sm {
+                max-width: 100% !important;
+                width: 100% !important;
+                border-radius: 1rem 1rem 0 0 !important;
+                max-height: 92vh !important;
+            }
+            .text-2xl.font-bold { font-size: 1.1rem; }
+        }
+
         /* Scrollbar styling */
         ::-webkit-scrollbar {
             width: 8px;
@@ -113,26 +141,26 @@
     </style>
 </head>
 
-<body class="p-8">
+<body class="p-3 sm:p-8">
     <div class="max-w-7xl mx-auto">
         <!-- Header -->
-        <div class="card p-6 mb-2">
-            <div class="flex justify-between items-center mb-5">
+        <div class="card p-4 sm:p-6 mb-2">
+            <div class="flex justify-between items-center mb-4 sm:mb-5">
                 <div>
-                    <h1 class="text-3xl font-bold text-gray-900">Admin Settings</h1>
-                    <p class="text-gray-600 mt-1">Manage users and course assignments</p>
+                    <h1 class="text-xl sm:text-3xl font-bold text-gray-900">Admin Settings</h1>
+                    <p class="text-xs sm:text-sm text-gray-600 mt-1">Manage users and course assignments</p>
                 </div>
                 <a href="{{ url_for('index') }}"
-                    class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition">
-                    ← Back to Dashboard
+                    class="px-3 py-1.5 text-sm sm:px-4 sm:py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition whitespace-nowrap">
+                    ← Back
                 </a>
             </div>
             <!-- Tabs -->
             <div class="flex border-gray-200">
-                <button class="tab-btn active" onclick="switchTab('users')">
+                <button class="tab-btn active text-sm sm:text-base" onclick="switchTab('users')">
                     User Management
                 </button>
-                <button class="tab-btn" onclick="switchTab('assignments')">
+                <button class="tab-btn text-sm sm:text-base" onclick="switchTab('assignments')">
                     Course Assignments
                 </button>
             </div>
@@ -141,8 +169,8 @@
 
 
         <!-- User Management Tab -->
-        <div id="tab-users" class="tab-content mb-10">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div id="tab-users" class="tab-content mb-6 sm:mb-10">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-8">
                 <!-- Add User Form -->
                 <div class="card p-6">
                     <h2 class="text-xl font-bold text-gray-900 mb-4">Add New User</h2>
@@ -211,14 +239,14 @@
         </div>
 
         <!-- Course Assignments Tab -->
-        <div id="tab-assignments" class="tab-content hidden mb-10">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div id="tab-assignments" class="tab-content hidden mb-6 sm:mb-10">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-8">
                 <!-- Create Assignment Form -->
-                <div class="card p-6">
+                <div class="card p-6" style="overflow: hidden;">
                     <h2 class="text-xl font-bold text-gray-900 mb-4">Create Course Assignment</h2>
                     
                     <!-- Manual Selection -->
-                    <form id="createAssignmentForm" class="space-y-4 mb-6">
+                    <form id="createAssignmentForm" class="space-y-4 mb-6" style="overflow:hidden;">
                         <div>
                             <label class="block text-sm font-semibold text-gray-700 mb-2">Select Course</label>
                             <select id="courseSelect" required class="input-field w-full px-4 py-2 rounded-lg">
@@ -268,9 +296,9 @@
                                 </div>
                             </div>
                         </div>
-                        <div>
+                        <div style="position:relative;overflow:hidden;width:100%;">
                             <label class="block text-sm font-semibold text-gray-700 mb-2">Deadline</label>
-                            <input type="date" id="deadline" required class="input-field w-full px-4 py-2 rounded-lg">
+                            <input type="date" id="deadline" required class="input-field px-4 py-2 rounded-lg" style="-webkit-appearance:none;appearance:none;display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:42px;line-height:1.5;">
                         </div>
                         <button type="submit" class="btn-primary w-full py-2 px-4 text-white font-semibold rounded-lg">
                             Create Assignment
@@ -288,7 +316,7 @@
                     </div>
                     
                     <!-- Bulk Upload -->
-                    <form id="bulkUploadAssignmentForm" class="space-y-4">
+                    <form id="bulkUploadAssignmentForm" class="space-y-4" style="overflow:hidden;">
                         <div>
                             <label class="block text-sm font-semibold text-gray-700 mb-2">Select Course</label>
                             <select id="bulkCourseSelect" required class="input-field w-full px-4 py-2 rounded-lg">
@@ -301,9 +329,9 @@
                                 class="input-field w-full px-4 py-2 rounded-lg text-sm">
                             <p class="text-xs text-gray-500 mt-1">Upload an Excel file with email addresses in the first column</p>
                         </div>
-                        <div>
+                        <div style="position:relative;overflow:hidden;width:100%;">
                             <label class="block text-sm font-semibold text-gray-700 mb-2">Deadline</label>
-                            <input type="date" id="bulkDeadline" required class="input-field w-full px-4 py-2 rounded-lg">
+                            <input type="date" id="bulkDeadline" required class="input-field px-4 py-2 rounded-lg" style="-webkit-appearance:none;appearance:none;display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:42px;line-height:1.5;">
                         </div>
                         <button type="submit" class="btn-primary w-full py-2 px-4 text-white font-semibold rounded-lg">
                             📤 Upload & Assign
@@ -324,14 +352,16 @@
 
     <!-- Edit Assignment Modal -->
     <div id="editAssignmentModal"
-        class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div class="card max-w-2xl w-full max-h-[85vh] flex flex-col">
+        class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+        <div class="card w-full max-w-2xl max-h-[92vh] sm:max-h-[85vh] flex flex-col rounded-t-2xl sm:rounded-2xl">
 
             <!-- Fixed header -->
-            <div class="flex justify-between items-start p-6 pb-4 flex-shrink-0">
-                <h2 class="text-2xl font-bold text-gray-900">Edit Assignment</h2>
-                <button onclick="closeEditAssignment()" class="text-gray-500 hover:text-gray-700">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="flex justify-between items-center px-4 py-3 sm:px-6 sm:py-4 sm:pb-4 flex-shrink-0 border-b border-gray-100">
+                <!-- Drag handle on mobile -->
+                <div class="absolute top-2 left-1/2 -translate-x-1/2 w-10 h-1 bg-gray-300 rounded-full sm:hidden"></div>
+                <h2 class="text-base sm:text-xl font-bold text-gray-900">Edit Assignment</h2>
+                <button onclick="closeEditAssignment()" class="text-gray-400 hover:text-gray-600 p-1">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -339,57 +369,57 @@
             </div>
 
             <!-- Loading Spinner -->
-            <div id="editAssignmentLoading" class="flex-1 flex flex-col items-center justify-center py-12">
-                <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-600 mb-4"></div>
-                <p class="text-gray-600 font-medium">Loading assignment details...</p>
+            <div id="editAssignmentLoading" class="flex-1 flex flex-col items-center justify-center py-8">
+                <div class="animate-spin rounded-full h-10 w-10 sm:h-16 sm:w-16 border-b-4 border-purple-600 mb-3"></div>
+                <p class="text-gray-600 text-sm font-medium">Loading assignment details...</p>
             </div>
 
             <!-- Scrollable body (hidden initially) -->
-            <div id="editAssignmentContent" class="hidden flex-1 overflow-y-auto px-6 min-h-0">
-                <div class="mb-4">
-                    <p class="text-sm text-gray-600"><strong>Course:</strong> <span id="editCourseName">Loading...</span></p>
-                    <p class="text-sm text-gray-600"><strong>Deadline:</strong> <span id="editDeadline">Loading...</span></p>
+            <div id="editAssignmentContent" class="hidden flex-1 overflow-y-auto px-4 sm:px-6 py-3 min-h-0">
+                <div class="mb-3 p-3 bg-gray-50 rounded-lg">
+                    <p class="text-xs sm:text-sm text-gray-600"><strong>Course:</strong> <span id="editCourseName">Loading...</span></p>
+                    <p class="text-xs sm:text-sm text-gray-600 mt-1"><strong>Deadline:</strong> <span id="editDeadline">Loading...</span></p>
                 </div>
 
-                <div class="mb-4">
-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Search Users</label>
-                    <input type="text" id="editUserSearchInput" placeholder="Search users by email or name..."
+                <div class="mb-3">
+                    <label class="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">Search Users</label>
+                    <input type="text" id="editUserSearchInput" placeholder="Search by email or name..."
                         class="input-field w-full px-3 py-2 text-sm rounded-lg" />
                 </div>
 
-                <div class="mb-4">
+                <div class="mb-3">
                     <div class="flex justify-between items-center mb-2">
-                        <label class="block text-sm font-semibold text-gray-700">Select Users</label>
-                        <div class="flex gap-2">
+                        <label class="block text-xs sm:text-sm font-semibold text-gray-700">Select Users</label>
+                        <div class="flex gap-1.5">
                             <button type="button" onclick="selectAllEditUsers()"
-                                class="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">
-                                Select All
+                                class="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">
+                                All
                             </button>
                             <button type="button" onclick="deselectAllEditUsers()"
-                                class="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition">
-                                Deselect All
+                                class="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition">
+                                None
                             </button>
                         </div>
                     </div>
-                    <div id="editUserSelectionCounter" class="mb-2 text-sm font-medium text-blue-600">
+                    <div id="editUserSelectionCounter" class="mb-2 text-xs sm:text-sm font-medium text-blue-600">
                         0 users selected
                     </div>
                     <div id="editUsersCheckboxList"
-                        class="border border-gray-200 rounded-lg p-4 overflow-y-auto">
+                        class="border border-gray-200 rounded-lg p-3 overflow-y-auto">
                         <!-- User checkboxes will be loaded here -->
                     </div>
                 </div>
             </div>
 
             <!-- Pinned footer with buttons (hidden initially) -->
-            <div id="editAssignmentFooter" class="hidden flex-shrink-0 px-6 py-4 border-t border-gray-200">
-                <div class="flex gap-3">
+            <div id="editAssignmentFooter" class="hidden flex-shrink-0 px-4 py-3 sm:px-6 sm:py-4 border-t border-gray-200">
+                <div class="flex gap-2 sm:gap-3">
                     <button onclick="saveAssignmentEdit()"
-                        class="btn-primary flex-1 py-2 px-4 text-white font-semibold rounded-lg">
+                        class="btn-primary flex-1 py-2.5 px-4 text-sm sm:text-base text-white font-semibold rounded-lg">
                         Save Changes
                     </button>
                     <button onclick="closeEditAssignment()"
-                        class="flex-1 py-2 px-4 bg-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-400 transition">
+                        class="flex-1 py-2.5 px-4 text-sm sm:text-base bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 transition">
                         Cancel
                     </button>
                 </div>
@@ -400,108 +430,90 @@
 
     <!-- Assignment Details Modal -->
     <div id="assignmentDetailsModal"
-        class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div class="card max-w-6xl w-full max-h-[90vh] flex flex-col">
-            <div class="p-6 flex-shrink-0">
-                <!-- Header -->
-                <div class="flex justify-between items-start mb-6">
-                    <div class="flex-1">
-                        <h2 id="modalCourseName" class="text-2xl font-bold text-gray-900">Loading...</h2>
-                        <p id="modalDeadline" class="text-sm text-gray-600 mt-1">Please wait...</p>
-                    </div>
-                    <button onclick="closeAssignmentDetails()" class="text-gray-500 hover:text-gray-700">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M6 18L18 6M6 6l12 12"></path>
-                        </svg>
+        class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+        <div class="card w-full max-w-6xl max-h-[92vh] sm:max-h-[90vh] flex flex-col rounded-t-2xl sm:rounded-2xl">
+
+            <!-- Fixed header -->
+            <div class="flex justify-between items-center px-4 py-3 sm:px-6 sm:py-4 flex-shrink-0 border-b border-gray-100">
+                <!-- Drag handle on mobile -->
+                <div class="absolute top-2 left-1/2 -translate-x-1/2 w-10 h-1 bg-gray-300 rounded-full sm:hidden"></div>
+                <div class="flex-1 min-w-0 pr-2">
+                    <h2 id="modalCourseName" class="text-sm sm:text-xl font-bold text-gray-900 truncate">Loading...</h2>
+                    <p id="modalDeadline" class="text-xs text-gray-500 mt-0.5">Please wait...</p>
+                </div>
+                <button onclick="closeAssignmentDetails()" class="text-gray-400 hover:text-gray-600 p-1 flex-shrink-0">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Loading Spinner -->
+            <div id="assignmentDetailsLoading" class="flex flex-col items-center justify-center py-10">
+                <div class="animate-spin rounded-full h-10 w-10 sm:h-16 sm:w-16 border-b-4 border-purple-600 mb-3"></div>
+                <p class="text-gray-600 text-sm font-medium">Loading assignment details...</p>
+            </div>
+
+            <!-- Content (hidden initially) -->
+            <div id="assignmentDetailsContent" class="hidden flex-shrink-0 px-3 sm:px-6 pt-3 sm:pt-4">
+                <!-- View Toggle -->
+                <div class="flex items-center justify-center mb-3 bg-gray-100 rounded-lg p-1">
+                    <button id="assignmentViewBtn" onclick="switchView('assignment')"
+                        class="flex-1 px-2 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm rounded-md font-medium transition bg-white text-blue-600 shadow">
+                        Assignment View
+                    </button>
+                    <button id="courseViewBtn" onclick="switchView('course')"
+                        class="flex-1 px-2 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm rounded-md font-medium transition text-gray-600">
+                        Course View
                     </button>
                 </div>
 
-                <!-- Loading Spinner -->
-                <div id="assignmentDetailsLoading" class="flex flex-col items-center justify-center py-12">
-                    <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-600 mb-4"></div>
-                    <p class="text-gray-600 font-medium">Loading assignment details...</p>
-                </div>
-
-                <!-- Content (hidden initially) -->
-                <div id="assignmentDetailsContent" class="hidden">
-                    <!-- View Toggle -->
-                    <div class="flex items-center justify-center mb-6 bg-gray-100 rounded-lg p-1">
-                        <button id="assignmentViewBtn" onclick="switchView('assignment')"
-                            class="flex-1 px-4 py-2 rounded-md font-medium transition bg-white text-blue-600 shadow">
-                            Assignment View
-                        </button>
-                        <button id="courseViewBtn" onclick="switchView('course')"
-                            class="flex-1 px-4 py-2 rounded-md font-medium transition text-gray-600">
-                            Course View
-                        </button>
+                <!-- Stats Cards -->
+                <div class="grid grid-cols-5 gap-1.5 sm:gap-3 mb-3">
+                    <div class="bg-blue-50 border border-blue-100 rounded-lg px-2 py-1.5 sm:px-3 sm:py-2 flex flex-col items-center text-center">
+                        <p class="text-gray-500 leading-tight" style="font-size:0.6rem;">Total</p>
+                        <p id="statTotalUsers" class="font-bold text-blue-600 leading-tight text-sm sm:text-xl">0</p>
                     </div>
-
-                    <!-- Stats Cards -->
-                    <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-                        <div class="bg-blue-50 p-4 rounded-lg">
-                            <p class="text-sm text-gray-600">Total Users</p>
-                            <p id="statTotalUsers" class="text-2xl font-bold text-blue-600">0</p>
-                        </div>
-                        <div class="bg-green-50 p-4 rounded-lg">
-                            <p class="text-sm text-gray-600">Completed</p>
-                            <p id="statCompleted" class="text-2xl font-bold text-green-600">0</p>
-                        </div>
-                        <div class="bg-yellow-50 p-4 rounded-lg">
-                            <p class="text-sm text-gray-600">In Progress</p>
-                            <p id="statInProgress" class="text-2xl font-bold text-yellow-600">0</p>
-                        </div>
-                        <div class="bg-red-50 p-4 rounded-lg">
-                            <p class="text-sm text-gray-600">Not Started</p>
-                            <p id="statNotStarted" class="text-2xl font-bold text-red-600">0</p>
-                        </div>
-                        <div class="bg-purple-50 p-4 rounded-lg">
-                            <p class="text-sm text-gray-600">Completion Rate</p>
-                            <p id="statCompletionRate" class="text-2xl font-bold text-purple-600">0%</p>
-                        </div>
+                    <div class="bg-green-50 border border-green-100 rounded-lg px-2 py-1.5 sm:px-3 sm:py-2 flex flex-col items-center text-center">
+                        <p class="text-gray-500 leading-tight" style="font-size:0.6rem;">Done</p>
+                        <p id="statCompleted" class="font-bold text-green-600 leading-tight text-sm sm:text-xl">0</p>
+                    </div>
+                    <div class="bg-yellow-50 border border-yellow-100 rounded-lg px-2 py-1.5 sm:px-3 sm:py-2 flex flex-col items-center text-center">
+                        <p class="text-gray-500 leading-tight" style="font-size:0.6rem;">Progress</p>
+                        <p id="statInProgress" class="font-bold text-yellow-600 leading-tight text-sm sm:text-xl">0</p>
+                    </div>
+                    <div class="bg-red-50 border border-red-100 rounded-lg px-2 py-1.5 sm:px-3 sm:py-2 flex flex-col items-center text-center">
+                        <p class="text-gray-500 leading-tight" style="font-size:0.6rem;">Not Started</p>
+                        <p id="statNotStarted" class="font-bold text-red-600 leading-tight text-sm sm:text-xl">0</p>
+                    </div>
+                    <div class="bg-purple-50 border border-purple-100 rounded-lg px-2 py-1.5 sm:px-3 sm:py-2 flex flex-col items-center text-center">
+                        <p class="text-gray-500 leading-tight" style="font-size:0.6rem;">Completion</p>
+                        <p id="statCompletionRate" class="font-bold text-purple-600 leading-tight text-sm sm:text-xl">0%</p>
                     </div>
                 </div>
             </div>
 
-            <!-- Users Table with Fixed Header and Scrollable Body -->
-            <div id="assignmentDetailsTable" class="hidden flex-1 overflow-hidden px-6 pb-6">
-                <div class="h-full border border-gray-200 rounded-lg overflow-hidden flex flex-col" style="height:270px;">
-                    <div class="flex-shrink-0">
-                        <table class="w-full" style="table-layout: fixed; border-collapse: collapse;">
-                            <colgroup>
-                                <col style="width: 30%;">
-                                <col style="width: 20%;">
-                                <col style="width: 15%;">
-                                <col style="width: 20%;">
-                                <col style="width: 15%;">
-                            </colgroup>
-                            <thead class="bg-gray-100">
-                                <tr>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">User Email</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Name</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Status</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Progress</th>
-                                    <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Completion Date</th>
-                                </tr>
-                            </thead>
-                        </table>
-                    </div>
-                    <div class="flex-1 overflow-y-auto">
-                        <table class="w-full" style="table-layout: fixed; border-collapse: collapse;">
-                            <colgroup>
-                                <col style="width: 30%;">
-                                <col style="width: 20%;">
-                                <col style="width: 15%;">
-                                <col style="width: 20%;">
-                                <col style="width: 15%;">
-                            </colgroup>
-                            <tbody id="usersTableBody" class="divide-y divide-gray-200">
-                                <!-- User rows will be loaded here -->
-                            </tbody>
-                        </table>
-                    </div>
+            <!-- Users Table -->
+            <div id="assignmentDetailsTable" class="hidden flex-1 overflow-hidden px-3 sm:px-6 pb-4 sm:pb-6 min-h-0">
+                <div class="border border-gray-200 rounded-lg overflow-hidden" style="height: 220px; overflow-y: auto; overflow-x: auto;">
+                    <table style="min-width: 520px; width: 100%; border-collapse: collapse;">
+                        <thead class="bg-gray-100 sticky top-0 z-10">
+                            <tr>
+                                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 whitespace-nowrap" style="min-width:160px;">User Email</th>
+                                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 whitespace-nowrap" style="min-width:90px;">Name</th>
+                                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 whitespace-nowrap" style="min-width:75px;">Status</th>
+                                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 whitespace-nowrap" style="min-width:110px;">Progress</th>
+                                <th class="px-3 py-2 text-left text-xs font-semibold text-gray-600 whitespace-nowrap" style="min-width:100px;">Completed</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersTableBody" class="divide-y divide-gray-200">
+                            <!-- User rows will be loaded here -->
+                        </tbody>
+                    </table>
                 </div>
             </div>
+
         </div>
     </div>
 
@@ -1441,35 +1453,35 @@
 
                 const aid = parseInt(assignment.id, 10);
                 return `
-                <div class="assignment-item p-4 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition"
+                <div class="assignment-item p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition"
                      data-aid="${aid}">
-                    <div class="flex justify-between items-start mb-2">
-                        <div class="flex-1">
-                            <h3 class="font-semibold text-gray-900">${h(assignment.course_name)}</h3>
-                            <p class="text-sm ${completionColor} font-medium">Completion: ${completionRate.toFixed(1)}%</p>
+                    <div class="flex justify-between items-start mb-1 gap-2">
+                        <div class="min-w-0 flex-1">
+                            <h3 class="font-semibold text-gray-900 text-sm leading-snug break-words">${h(assignment.course_name)}</h3>
+                            <p class="text-xs ${completionColor} font-medium mt-0.5">Completion: ${completionRate.toFixed(1)}%</p>
                         </div>
-                        <div class="flex gap-2">
-                            <button class="remind-btn text-yellow-600 hover:text-yellow-800" data-aid="${aid}" title="Send Reminders">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div class="flex gap-1.5 flex-shrink-0">
+                            <button class="remind-btn text-yellow-600 hover:text-yellow-800 p-1" data-aid="${aid}" title="Send Reminders">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
                                 </svg>
                             </button>
-                            <button class="edit-assignment-btn text-blue-600 hover:text-blue-800" data-aid="${aid}" title="Edit Assignment">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <button class="edit-assignment-btn text-blue-600 hover:text-blue-800 p-1" data-aid="${aid}" title="Edit Assignment">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
                                 </svg>
                             </button>
-                            <button class="delete-assignment-btn text-red-600 hover:text-red-800" data-aid="${aid}" title="Delete Assignment">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <button class="delete-assignment-btn text-red-600 hover:text-red-800 p-1" data-aid="${aid}" title="Delete Assignment">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
                                 </svg>
                             </button>
                         </div>
                     </div>
-                    <p class="text-sm text-gray-600 mb-2">
+                    <p class="text-xs text-gray-600 mb-1">
                         <strong>Deadline:</strong> ${h(assignment.deadline)}
                     </p>
-                    <p class="text-sm text-gray-600 mb-2">
+                    <p class="text-xs text-gray-600 mb-1">
                         <strong>Assigned to:</strong> ${h(assignment.user_emails.length)} user(s)
                     </p>
                     ${assignment.stats ? `
@@ -1882,10 +1894,10 @@
     </div>
 
     <!-- Footer -->
-    <footer class="fixed bottom-0 left-0 right-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 text-white py-3 shadow-lg z-40">
+    <footer class="fixed bottom-0 left-0 right-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 text-white py-2 sm:py-3 shadow-lg z-40">
         <div class="container mx-auto px-4 text-center">
-            <p class="text-sm font-medium">
-                © 2025 Nelco | Safety & Excellence Dashboard - Management (v1.2)
+            <p class="font-medium" style="font-size: clamp(0.55rem, 2vw, 0.875rem);">
+                 Safety & Excellence Dashboard (v1.2) © 2025 Nelco
             </p>
         </div>
     </footer>

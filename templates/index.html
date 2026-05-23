@@ -10,13 +10,19 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
-        body { 
+        body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 75%, #00f2fe 100%);
             background-size: 400% 400%;
             animation: gradientShift 60s ease infinite;
             min-height: 100vh;
-            padding-bottom: 60px;
+            min-height: 100dvh;
+            padding-bottom: 52px;
+        }
+
+        footer.fixed {
+            bottom: 0;
+            bottom: env(safe-area-inset-bottom, 0);
         }
         
         @keyframes gradientShift {
@@ -77,11 +83,11 @@
         }
         
         .header-icon {
-            width: 56px;
-            height: 56px;
+            width: 38px;
+            height: 38px;
             background: rgba(255, 255, 255, 0.2);
             backdrop-filter: blur(10px);
-            border-radius: 16px;
+            border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -90,15 +96,20 @@
                         inset 0 1px 0 rgba(255, 255, 255, 0.3);
             border: 1px solid rgba(255, 255, 255, 0.2);
             transition: all 0.3s ease;
+            flex-shrink: 0;
         }
-        
+
+        @media (min-width: 768px) {
+            .header-icon { width: 56px; height: 56px; border-radius: 16px; }
+        }
+
         .header-icon:hover {
             transform: scale(1.05) rotate(5deg);
             box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
         }
         
         .header-title {
-            font-size: 1.875rem;
+            font-size: 0.65rem;
             font-weight: 800;
             color: white;
             text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2),
@@ -106,13 +117,32 @@
             letter-spacing: -0.025em;
             line-height: 1.2;
         }
-        
+
+        @media (min-width: 480px) {
+            .header-title { font-size: 0.85rem; }
+        }
+
+        @media (min-width: 768px) {
+            .header-title { font-size: 1.345rem; }
+        }
+
         .header-subtitle {
-            color: rgba(255, 255, 255, 0.9);
-            font-size: 0.875rem;
-            font-weight: 500;
-            margin-top: 0.25rem;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+            display: none;
+        }
+
+        @media (min-width: 480px) {
+            .header-subtitle {
+                display: block;
+                color: rgba(255, 255, 255, 0.9);
+                font-size: 0.65rem;
+                font-weight: 500;
+                margin-top: 0.15rem;
+                text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+            }
+        }
+
+        @media (min-width: 768px) {
+            .header-subtitle { font-size: 0.875rem; margin-top: 0.25rem; }
         }
         
         .header-badge {
@@ -164,17 +194,30 @@
             gap: 0.5rem;
             background: rgba(255, 255, 255, 0.2);
             backdrop-filter: blur(10px);
-            padding: 0.5rem 1rem;
+            padding: 0.4rem 0.6rem;
             border-radius: 0.5rem;
             border: 1px solid rgba(255, 255, 255, 0.3);
             color: white;
-            font-size: 0.875rem;
+            font-size: 0.75rem;
             font-weight: 600;
             text-decoration: none;
             transition: all 0.3s ease;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
-        
+
+        @media (min-width: 768px) {
+            .settings-btn, .logout-btn {
+                padding: 0.5rem 1rem;
+                font-size: 0.875rem;
+            }
+        }
+
+        /* Hide button text on very small screens, show only icons */
+        @media (max-width: 480px) {
+            .settings-btn span, .logout-btn span { display: none; }
+            .header-badge { display: none; }
+        }
+
         .settings-btn:hover, .logout-btn:hover {
             background: rgba(255, 255, 255, 0.3);
             transform: translateY(-2px);
@@ -243,13 +286,14 @@
         
         .modal.active { display: flex; align-items: center; justify-content: center; }
         
-        .modal-content { 
+        .modal-content {
             background: rgba(255, 255, 255, 0.98);
             backdrop-filter: blur(10px);
-            margin: auto; 
-            padding: 0; 
+            margin: auto;
+            padding: 0;
             border-radius: 1rem;
-            max-width: 90%; 
+            width: 96%;
+            max-width: 90%;
             overflow: hidden;
             display: flex;
             flex-direction: column;
@@ -257,11 +301,26 @@
                         inset 0 1px 0 0 rgba(255, 255, 255, 0.5);
             border: 1px solid rgba(255, 255, 255, 0.18);
         }
-        
+
+        @media (max-width: 640px) {
+            .modal-content {
+                width: 100%;
+                max-width: 100%;
+                border-radius: 1rem 1rem 0 0;
+                margin: auto 0 0 0;
+                max-height: 92vh;
+            }
+            .modal { align-items: flex-end; }
+        }
+
         .modal-header {
-            padding: 1.5rem;
+            padding: 1rem;
             border-bottom: 1px solid rgba(0, 0, 0, 0.1);
             flex-shrink: 0;
+        }
+
+        @media (min-width: 640px) {
+            .modal-header { padding: 1.5rem; }
         }
         
         .modal-table-container {
@@ -279,56 +338,85 @@
             position: sticky;
             top: 0;
             z-index: 10;
-            background: rgba(249, 250, 251, 0.98);
+            background: rgba(0, 0, 0, 0.98);
             backdrop-filter: blur(10px);
         }
         
         body.modal-open {
             overflow: hidden;
         }
+
+        /* Mobile: full-screen sheet modals */
+        @media (max-width: 640px) {
+            #statusDetailsModal .modal-content,
+            #courseModal .modal-content,
+            #userModal .modal-content,
+            #chartModal .modal-content {
+                width: 100% !important;
+                max-width: 100% !important;
+                border-radius: 1rem 1rem 0 0;
+                margin: auto 0 0 0;
+                max-height: 92vh;
+            }
+            #statusDetailsModal,
+            #courseModal,
+            #userModal,
+            #chartModal {
+                align-items: flex-end;
+            }
+            #chartModalContent { min-height: 260px; }
+            .modal-header h2 { font-size: 1rem; }
+            .modal-table-container { padding: 0 0.75rem 0.75rem 0.75rem; }
+            .modal-table-container th,
+            .modal-table-container td { padding: 0.5rem 0.5rem; font-size: 0.75rem; }
+        }
         
-        .chart-controls { position: absolute; top: 10px; right: 10px; z-index: 10; }
-        
-        .toggle-btn { 
-            padding: 4px 8px; 
-            font-size: 12px; 
-            border-radius: 6px; 
+        .chart-controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .toggle-btn, .icon-btn {
+            height: 26px;
+            padding: 0 8px;
+            font-size: 11px;
+            line-height: 1;
+            border-radius: 6px;
             border: 1px solid rgba(209, 213, 219, 0.5);
             background: rgba(255, 255, 255, 0.9);
             backdrop-filter: blur(10px);
             cursor: pointer;
             transition: all 0.3s ease;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
-        
-        .toggle-btn:hover {
+
+        .icon-btn {
+            width: 26px;
+            padding: 0;
+        }
+
+        .toggle-btn:hover, .icon-btn:hover {
             transform: translateY(-1px);
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
         }
-        
-        .toggle-btn.active { 
+
+        .toggle-btn.active {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white; 
+            color: white;
             border-color: transparent;
             box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
         }
-        
-        .icon-btn { 
-            padding: 6px; 
-            border-radius: 6px; 
-            border: 1px solid rgba(209, 213, 219, 0.5);
-            background: rgba(255, 255, 255, 0.9);
-            backdrop-filter: blur(10px);
-            cursor: pointer; 
-            margin-left: 4px;
-            transition: all 0.3s ease;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-        
-        .icon-btn:hover { 
+
+        .icon-btn:hover {
             background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
-            transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
         }
         
         .tab-btn { 
@@ -416,20 +504,23 @@
 </head>
 <body>
     <header class="header-gradient">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-6">
             <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-4">
+                <div class="flex items-center space-x-2 sm:space-x-4">
                     <div class="header-icon">
-                        <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg class="w-5 h-5 sm:w-10 sm:h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
                         </svg>
                     </div>
                     <div>
-                        <h1 class="header-title">Safety & Excellence - Course Analytics Dashboard</h1>
+                        <h1 class="header-title">
+                            <span class="hidden sm:inline">Safety & Excellence - Course Analytics Dashboard</span>
+                            <span class="sm:hidden">Safety & Excellence Dashboard</span>
+                        </h1>
                         <p class="header-subtitle">Track course progress and user engagement</p>
                     </div>
                 </div>
-                <div class="flex items-center space-x-4">
+                <div class="flex items-center space-x-2 sm:space-x-4">
                     <div class="header-badge">
                         <span class="badge-dot"></span>
                         <span class="badge-text">Live Data</span>
@@ -454,41 +545,41 @@
         </div>
     </header>
 
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <main class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
         <div id="loading" class="text-center py-12">
             <div class="loading mx-auto"></div>
             <p class="text-gray-600 mt-4">Loading dashboard data...</p>
         </div>
 
         <div id="dashboard" class="hidden">
-            <!-- KPI Cards - 5 tiles in one row on large screens -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 xl:grid-cols-5 gap-6 mb-8">
-                <div class="card p-6">
+            <!-- KPI Cards - 2 cols mobile, 5 on large screens -->
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-6 mb-6 sm:mb-8">
+                <div class="card p-3 sm:p-6">
                     <div class="flex items-center justify-between">
-                        <div><p class="text-sm font-medium text-gray-600">Total Courses</p>
-                            <p id="kpi-courses" class="text-3xl font-bold text-gray-900 mt-2">-</p></div>
-                        <div class="bg-blue-100 p-3 rounded-full"><svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg></div>
+                        <div><p class="text-xs sm:text-sm font-medium text-gray-600">Total Courses</p>
+                            <p id="kpi-courses" class="text-2xl sm:text-3xl font-bold text-gray-900 mt-1 sm:mt-2">-</p></div>
+                        <div class="bg-blue-100 p-2 sm:p-3 rounded-full"><svg class="w-5 h-5 sm:w-8 sm:h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg></div>
                     </div>
                 </div>
-                <div class="card p-6">
+                <div class="card p-3 sm:p-6">
                     <div class="flex items-center justify-between">
-                        <div><p class="text-sm font-medium text-gray-600">Total Users</p>
-                            <p id="kpi-users" class="text-3xl font-bold text-gray-900 mt-2">-</p></div>
-                        <div class="bg-green-100 p-3 rounded-full"><svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg></div>
+                        <div><p class="text-xs sm:text-sm font-medium text-gray-600">Total Users</p>
+                            <p id="kpi-users" class="text-2xl sm:text-3xl font-bold text-gray-900 mt-1 sm:mt-2">-</p></div>
+                        <div class="bg-green-100 p-2 sm:p-3 rounded-full"><svg class="w-5 h-5 sm:w-8 sm:h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg></div>
                     </div>
                 </div>
-                <div class="card p-6">
+                <div class="card p-3 sm:p-6">
                     <div class="flex items-center justify-between">
-                        <div><p class="text-sm font-medium text-gray-600">Total Enrollments</p>
-                            <p id="kpi-enrollments" class="text-3xl font-bold text-gray-900 mt-2">-</p></div>
-                        <div class="bg-purple-100 p-3 rounded-full"><svg class="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg></div>
+                        <div><p class="text-xs sm:text-sm font-medium text-gray-600">Total Enrollments</p>
+                            <p id="kpi-enrollments" class="text-2xl sm:text-3xl font-bold text-gray-900 mt-1 sm:mt-2">-</p></div>
+                        <div class="bg-purple-100 p-2 sm:p-3 rounded-full"><svg class="w-5 h-5 sm:w-8 sm:h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg></div>
                     </div>
                 </div>
-                <div class="card p-6">
+                <div class="card p-3 sm:p-6">
                     <div class="flex items-center justify-between">
-                        <div><p class="text-sm font-medium text-gray-600">Completion Rate</p>
-                            <p id="kpi-completion" class="text-3xl font-bold text-gray-900 mt-2">-</p></div>
-                        <div class="bg-yellow-100 p-3 rounded-full"><svg class="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg></div>
+                        <div><p class="text-xs sm:text-sm font-medium text-gray-600">Completion Rate</p>
+                            <p id="kpi-completion" class="text-2xl sm:text-3xl font-bold text-gray-900 mt-1 sm:mt-2">-</p></div>
+                        <div class="bg-yellow-100 p-2 sm:p-3 rounded-full"><svg class="w-5 h-5 sm:w-8 sm:h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg></div>
                     </div>
                 </div>
                 <!-- Cache Status & Refresh Tile -->
@@ -499,10 +590,10 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                             </svg>
                             <div class="flex-1 min-w-0">
-                                <p class="text-xs font-medium text-gray-600 leading-tight" id="cache-status-text">
+                                <p class="hidden sm:block text-xs font-medium text-gray-600 leading-tight" id="cache-status-text">
                                     Loading...
                                 </p>
-                                <p class="text-xs text-gray-500 mt-0.5" id="cache-age-text"></p>
+                                <p class="text-xs text-gray-500 sm:mt-0.5" id="cache-age-text"></p>
                             </div>
                         </div>
                         <button id="refresh-btn" onclick="refreshData()" class="w-full flex items-center justify-center space-x-2 px-3 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-sm font-medium rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
@@ -515,67 +606,74 @@
                 </div>
             </div>
             <!-- Charts Row 1 - Two Charts -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                <div class="card p-6 relative" style="overflow:auto;">
-                    <h2 class="text-lg font-semibold text-gray-900 mb-4">Top Courses by Enrollment</h2>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-6 mb-4 sm:mb-8">
+                <div class="card p-3 sm:p-6 relative" style="overflow:auto;">
+                    <h2 class="text-sm sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Top Courses by Enrollment</h2>
                     <div class="chart-controls">
                         <button class="toggle-btn active" onclick="toggleChartView('enrollment', 'top10')">Top 10</button>
-                        <button class="toggle-btn" onclick="toggleChartView('enrollment', 'all')">Show All</button>
-                        <button class="icon-btn" onclick="zoomChart('enrollment')" title="Zoom">🔍</button>
+                        <button class="toggle-btn" onclick="toggleChartView('enrollment', 'all')">All</button>
+                        <button class="icon-btn" onclick="restoreChart('enrollment')" title="Restore view">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                        </button>
+                        <button class="icon-btn" onclick="zoomChart('enrollment')" title="Expand">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                        </button>
                     </div>
-                    <div id="chart-enrollment" style="height: 400px;"></div>
+                    <div id="chart-enrollment" style="height: 280px;"></div>
                 </div>
-                <div class="card p-6 relative" style="overflow:auto;">
-                    <h2 class="text-lg font-semibold text-gray-900 mb-4">Overall Completion Status</h2>
-                    <div class="chart-controls">
-                        <button class="icon-btn" onclick="zoomChart('status')" title="Zoom">🔍</button>
-                    </div>
-                    <div id="chart-status" style="height: 400px;"></div>
+                <div class="card p-3 sm:p-6 relative" style="overflow:auto;">
+                    <h2 class="text-sm sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Overall Completion Status</h2>
+                    <div id="chart-status" style="height: 280px;"></div>
                 </div>
             </div>
 
             <!-- Charts Row 2 - Full Width -->
-            <div class="mb-8">
-                <div class="card p-6 relative" style="overflow:auto;">
-                    <h2 class="text-lg font-semibold text-gray-900 mb-4">User Progress Overview</h2>
+            <div class="mb-4 sm:mb-8">
+                <div class="card p-3 sm:p-6 relative" style="overflow:auto;">
+                    <h2 class="text-sm sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">User Progress Overview</h2>
                     <div class="chart-controls">
                         <button class="toggle-btn active" onclick="toggleChartView('users', 'top10')">Top 10</button>
-                        <button class="toggle-btn" onclick="toggleChartView('users', 'all')">Show All</button>
-                        <button class="icon-btn" onclick="zoomChart('users')" title="Zoom">🔍</button>
+                        <button class="toggle-btn" onclick="toggleChartView('users', 'all')">All</button>
+                        <button class="icon-btn" onclick="restoreChart('users')" title="Restore view">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                        </button>
+                        <button class="icon-btn" onclick="zoomChart('users')" title="Expand">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                        </button>
                     </div>
-                    <div id="chart-users" style="height: 350px;"></div>
+                    <div id="chart-users" style="height: 280px;"></div>
                 </div>
             </div>
 
             <!-- Tabbed Tables -->
-            <div class="card p-6">
+            <div class="card p-3 sm:p-6">
                 <!-- Tab Headers -->
-                <div class="flex justify-between items-center mb-4 border-b border-gray-200">
-                    <div class="flex space-x-4">
-                        <button id="tab-courses" class="tab-btn active px-4 py-2 font-semibold text-blue-600 border-b-2 border-blue-600" onclick="switchTab('courses')">
-                            Course Overview
+                <div class="flex flex-wrap justify-between items-center mb-4 border-b border-gray-200 gap-2">
+                    <div class="flex space-x-2 sm:space-x-4">
+                        <button id="tab-courses" class="tab-btn active px-3 py-2 text-sm sm:px-4 font-semibold text-blue-600 border-b-2 border-blue-600" onclick="switchTab('courses')">
+                            Courses
                         </button>
-                        <button id="tab-users" class="tab-btn px-4 py-2 font-semibold text-gray-500 border-b-2 border-transparent hover:text-gray-700" onclick="switchTab('users')">
-                            User Overview
+                        <button id="tab-users" class="tab-btn px-3 py-2 text-sm sm:px-4 font-semibold text-gray-500 border-b-2 border-transparent hover:text-gray-700" onclick="switchTab('users')">
+                            Users
                         </button>
                     </div>
-                    <button id="export-btn" onclick="exportTable('courses')" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 mb-3">
+                    <button id="export-btn" onclick="exportTable('courses')" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 mb-1">
                         Export CSV
                     </button>
                 </div>
 
                 <!-- Course Overview Table -->
                 <div id="content-courses" class="tab-content">
-                    <div class="overflow-x-auto" style="max-height: 500px; overflow-y: auto;">
-                        <table class="min-w-full divide-y divide-gray-200">
+                    <div style="max-height: 500px; overflow-y: auto; overflow-x: auto;">
+                        <table class="divide-y divide-gray-200" style="min-width: 640px; width: 100%; border-collapse: collapse;">
                             <thead class="bg-gray-50 sticky top-0 z-10">
                                 <tr>
-                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('courses', 0)">Course Name <span class="sort-icon">↕</span></th>
-                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('courses', 1)">Users Assigned <span class="sort-icon">↕</span></th>
-                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('courses', 2)">Completed <span class="sort-icon">↕</span></th>
-                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('courses', 3)">In Progress <span class="sort-icon">↕</span></th>
-                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('courses', 4)">Not Started <span class="sort-icon">↕</span></th>
-                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('courses', 5)">Completion Rate <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:180px;" onclick="sortTable('courses', 0)">Course Name <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:110px;" onclick="sortTable('courses', 1)">Users Assigned <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:90px;" onclick="sortTable('courses', 2)">Completed <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:90px;" onclick="sortTable('courses', 3)">In Progress <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:90px;" onclick="sortTable('courses', 4)">Not Started <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:120px;" onclick="sortTable('courses', 5)">Completion Rate <span class="sort-icon">↕</span></th>
                                 </tr>
                             </thead>
                             <tbody id="table-courses" class="bg-white divide-y divide-gray-200"></tbody>
@@ -585,16 +683,16 @@
 
                 <!-- User Overview Table -->
                 <div id="content-users" class="tab-content hidden">
-                    <div class="overflow-x-auto" style="max-height: 500px; overflow-y: auto;">
-                        <table class="min-w-full divide-y divide-gray-200">
+                    <div style="max-height: 500px; overflow-y: auto; overflow-x: auto;">
+                        <table class="divide-y divide-gray-200" style="min-width: 620px; width: 100%; border-collapse: collapse;">
                             <thead class="bg-gray-50 sticky top-0 z-10">
                                 <tr>
-                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('users', 0)">User Name <span class="sort-icon">↕</span></th>
-                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('users', 1)">Email <span class="sort-icon">↕</span></th>
-                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('users', 2)">Total Courses <span class="sort-icon">↕</span></th>
-                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('users', 3)">Completed <span class="sort-icon">↕</span></th>
-                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('users', 4)">In Progress <span class="sort-icon">↕</span></th>
-                                    <th class="sortable px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase" onclick="sortTable('users', 5)">Completion Rate <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:130px;" onclick="sortTable('users', 0)">User Name <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:160px;" onclick="sortTable('users', 1)">Email <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:100px;" onclick="sortTable('users', 2)">Total Courses <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:90px;" onclick="sortTable('users', 3)">Completed <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:90px;" onclick="sortTable('users', 4)">In Progress <span class="sort-icon">↕</span></th>
+                                    <th class="sortable px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:120px;" onclick="sortTable('users', 5)">Completion Rate <span class="sort-icon">↕</span></th>
                                 </tr>
                             </thead>
                             <tbody id="table-users" class="bg-white divide-y divide-gray-200"></tbody>
@@ -607,10 +705,10 @@
 
     <!-- Course Detail Modal -->
     <div id="courseModal" class="modal">
-        <div class="modal-content" style="width: 80%; max-width: 1000px; max-height: 90vh; display: flex; flex-direction: column;">
+        <div class="modal-content" style="width: 95%; max-width: 1000px; max-height: 90vh; display: flex; flex-direction: column;">
             <div class="modal-header" style="flex-shrink: 0;">
                 <div class="flex justify-between items-center">
-                    <h2 id="courseModalTitle" class="text-2xl font-bold text-gray-900">Loading...</h2>
+                    <h2 id="courseModalTitle" class="text-base sm:text-2xl font-bold text-gray-900">Loading...</h2>
                     <button onclick="closeModal('courseModal')" class="text-gray-500 hover:text-gray-700 text-3xl leading-none">&times;</button>
                 </div>
             </div>
@@ -623,29 +721,31 @@
             
             <!-- Content (hidden initially) -->
             <div id="courseModalContent" class="modal-table-container" style="display: none;">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User Name</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Completion %</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Activity Status</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Completion Date</th>
-                        </tr>
-                    </thead>
-                    <tbody id="courseModalBody" class="bg-white divide-y divide-gray-200"></tbody>
-                </table>
+                <div style="overflow-x: auto;">
+                    <table class="divide-y divide-gray-200" style="min-width: 560px; width: 100%; border-collapse: collapse;">
+                        <thead class="bg-gray-50 sticky top-0 z-10">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:120px;">User Name</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:160px;">Email</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:100px;">Completion %</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:90px;">Status</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:110px;">Activity Status</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:120px;">Completion Date</th>
+                            </tr>
+                        </thead>
+                        <tbody id="courseModalBody" class="bg-white divide-y divide-gray-200"></tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
 
     <!-- User Detail Modal -->
     <div id="userModal" class="modal">
-        <div class="modal-content" style="width: 80%; max-width: 1000px; max-height: 90vh; display: flex; flex-direction: column;">
+        <div class="modal-content" style="width: 95%; max-width: 1000px; max-height: 90vh; display: flex; flex-direction: column;">
             <div class="modal-header" style="flex-shrink: 0;">
                 <div class="flex justify-between items-center">
-                    <h2 id="userModalTitle" class="text-2xl font-bold text-gray-900">Loading...</h2>
+                    <h2 id="userModalTitle" class="text-base sm:text-2xl font-bold text-gray-900">Loading...</h2>
                     <button onclick="closeModal('userModal')" class="text-gray-500 hover:text-gray-700 text-3xl leading-none">&times;</button>
                 </div>
             </div>
@@ -658,58 +758,63 @@
             
             <!-- Content (hidden initially) -->
             <div id="userModalContent" class="modal-table-container" style="display: none;">
-                <div class="mb-6">
-                    <h3 class="text-lg font-semibold mb-2">Course Completion Timeline</h3>
-                    <div id="userTimelineChart" style="height: 300px;"></div>
+                <div class="mb-4">
+                    <h3 class="text-sm sm:text-lg font-semibold mb-2">Course Completion Timeline</h3>
+                    <div id="userTimelineChart" style="height: 300px; transition: height 0.2s;"></div>
+                    <div id="userTimelineNoData" style="display:none; height: 56px; background: #f9fafb; border-radius: 8px; border: 1px dashed #d1d5db; align-items: center; justify-content: center;">
+                        <p class="text-sm text-gray-400">No data to show</p>
+                    </div>
                 </div>
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Course Name</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Completion %</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Activity Status</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Completion Date</th>
-                        </tr>
-                    </thead>
-                    <tbody id="userModalBody" class="bg-white divide-y divide-gray-200"></tbody>
-                </table>
+                <div style="overflow-x: auto;">
+                    <table class="divide-y divide-gray-200" style="min-width: 480px; width: 100%; border-collapse: collapse;">
+                        <thead class="bg-gray-50 sticky top-0 z-10">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:160px;">Course Name</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:100px;">Completion %</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:90px;">Status</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:110px;">Activity Status</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" style="min-width:120px;">Completion Date</th>
+                            </tr>
+                        </thead>
+                        <tbody id="userModalBody" class="bg-white divide-y divide-gray-200"></tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
 
     <!-- Status Details Modal -->
     <div id="statusDetailsModal" class="modal">
-        <div class="modal-content" style="width: 90%; max-width: 1200px; max-height: 90vh; display: flex; flex-direction: column;">
+        <div class="modal-content" style="width: 95%; max-width: 1200px; max-height: 92vh; display: flex; flex-direction: column;">
             <div class="modal-header" style="flex-shrink: 0;">
                 <div class="flex justify-between items-center">
-                    <h2 id="statusModalTitle" class="text-2xl font-bold text-gray-900">Loading...</h2>
+                    <h2 id="statusModalTitle" class="text-base sm:text-2xl font-bold text-gray-900">Loading...</h2>
                     <button onclick="closeModal('statusDetailsModal')" class="text-gray-500 hover:text-gray-700 text-3xl leading-none">&times;</button>
                 </div>
             </div>
-            
+
             <!-- Loading Spinner -->
             <div id="statusDetailsLoading" class="flex flex-col items-center justify-center py-12">
                 <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-600 mb-4"></div>
                 <p class="text-gray-600 font-medium">Loading status details...</p>
             </div>
-            
+
             <!-- View Toggle and Export Button (hidden initially) -->
-            <div id="statusDetailsToggle" class="hidden mb-4" style="flex-shrink: 0;">
-                <div class="flex items-center justify-between gap-4">
-                    <div class="flex items-center justify-center flex-1 bg-gray-100 rounded-lg p-1">
+            <div id="statusDetailsToggle" class="hidden mb-3 px-4 sm:px-0 sm:mb-4" style="flex-shrink: 0;">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex items-center justify-center flex-1 bg-gray-100 rounded-lg p-1 min-w-0">
                         <button id="statusCourseViewBtn" onclick="switchStatusView('course')"
-                            class="flex-1 px-4 py-2 rounded-md font-medium transition bg-white text-blue-600 shadow">
+                            class="flex-1 px-2 py-1.5 sm:px-4 sm:py-2 text-sm rounded-md font-medium transition bg-white text-blue-600 shadow">
                             Course View
                         </button>
                         <button id="statusUserViewBtn" onclick="switchStatusView('user')"
-                            class="flex-1 px-4 py-2 rounded-md font-medium transition text-gray-600">
+                            class="flex-1 px-2 py-1.5 sm:px-4 sm:py-2 text-sm rounded-md font-medium transition text-gray-600">
                             User View
                         </button>
                     </div>
                     <button onclick="exportStatusToExcel()"
-                        class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium flex items-center gap-2">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        class="px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium flex items-center gap-1.5 flex-shrink-0">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                         </svg>
                         Export
@@ -726,14 +831,17 @@
 
     <!-- Chart Zoom Modal -->
     <div id="chartModal" class="modal">
-        <div class="modal-content" style="width: 90%; max-width: 1200px;overflow:hidden">
-            <div class="bg-white p-6 rounded-lg">
-                <div class="flex justify-between items-center mb-4">
-                    <h2 id="chartModalTitle" class="text-2xl font-bold text-gray-900"></h2>
-                    <button onclick="closeModal('chartModal')" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+        <div class="modal-content" style="width: 95%; max-width: 1200px; max-height: 92vh; display: flex; flex-direction: column; overflow: hidden;">
+            <div class="flex justify-between items-center px-4 py-3 sm:px-6 sm:py-4 border-b border-gray-100 flex-shrink-0">
+                <h2 id="chartModalTitle" class="text-base sm:text-xl font-bold text-gray-900"></h2>
+                <div class="flex items-center gap-2">
+                    <button id="chartModalRestoreBtn" onclick="restoreZoomedChart()" title="Restore view" class="icon-btn" style="width:28px;height:28px;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                    </button>
+                    <button onclick="closeModal('chartModal')" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
                 </div>
-                <div id="chartModalContent" style="height: 600px;"></div>
             </div>
+            <div id="chartModalContent" style="width: 100%; height: 500px;"></div>
         </div>
     </div>
 
@@ -971,10 +1079,15 @@
             const dataToShow = chartViews.enrollment === 'top10' ? courses.slice(0, 10) : courses;
             const reversedData = [...dataToShow].reverse();
             
+            const totalItems = reversedData.length;
+            // Show all by default; if many items, keep visible window showing all but allow zoom-in
+            const dzEnd = 100;
+            const dzStart = 0;
+
             const option = {
-                tooltip: { 
-                    trigger: 'axis', 
-                    axisPointer: { 
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
                         type: 'shadow',
                         snap: true
                     },
@@ -987,13 +1100,38 @@
                         return `<strong>${course.course_name}</strong><br/>Users: ${data.value}`;
                     }
                 },
-                grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                grid: { left: '3%', right: '4%', bottom: totalItems > 8 ? '60px' : '3%', top: '3%', containLabel: true },
                 xAxis: { type: 'value' },
-                yAxis: { 
+                yAxis: {
                     type: 'category',
                     data: reversedData.map(c => c.course_name.substring(0, 40) + '...'),
                     axisLabel: { fontSize: 10 }
                 },
+                dataZoom: [
+                    {
+                        type: 'inside',
+                        orient: 'vertical',
+                        yAxisIndex: 0,
+                        start: dzStart,
+                        end: dzEnd,
+                        zoomOnMouseWheel: true,
+                        moveOnMouseMove: true,
+                        moveOnMouseWheel: false
+                    },
+                    {
+                        type: 'slider',
+                        orient: 'vertical',
+                        yAxisIndex: 0,
+                        start: dzStart,
+                        end: dzEnd,
+                        width: 14,
+                        right: 4,
+                        fillerColor: 'rgba(102,126,234,0.25)',
+                        borderColor: 'rgba(102,126,234,0.3)',
+                        handleStyle: { color: '#667eea' },
+                        show: totalItems > 8
+                    }
+                ],
                 series: [{
                     name: 'Users',
                     type: 'bar',
@@ -1013,132 +1151,164 @@
                 renderer: 'canvas',
                 useDirtyRect: false
             });
-            
+
             const totalCompleted = courses.reduce((sum, c) => sum + c.completed, 0);
             const totalInProgress = courses.reduce((sum, c) => sum + c.in_progress, 0);
             const totalNotStarted = courses.reduce((sum, c) => sum + c.not_started, 0);
             const total = totalCompleted + totalInProgress + totalNotStarted;
-            
+
+            // Responsive radius — smaller on mobile
+            const isMobile = window.innerWidth < 640;
+            const outerR = isMobile ? '55%' : '68%';
+            const innerR = isMobile ? '28%' : '38%';
+
             const option = {
-                tooltip: { 
+                backgroundColor: 'transparent',
+                tooltip: {
                     trigger: 'item',
-                    formatter: function(params) {
-                        return `<strong>${params.name}</strong><br/>Count: ${params.value}<br/>Percentage: ${params.percent.toFixed(1)}%`;
-                    },
-                    confine: false,
+                    show: true,
+                    confine: true,
                     appendToBody: true,
-                    extraCssText: 'z-index: 99999 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.3); padding: 12px; border-radius: 6px; pointer-events: none;'
-                },
-                legend: { 
-                    orient: 'vertical', 
-                    left: 'left', 
-                    top: 'center',
-                    textStyle: {
-                        fontSize: 12,
-                        fontWeight: 500
+                    formatter: function(params) {
+                        const dot = `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${params.color};margin-right:6px;vertical-align:middle;"></span>`;
+                        return `<div style="font-family:-apple-system,sans-serif;line-height:1.5;">
+                            ${dot}<strong style="font-size:13px;">${params.name}</strong><br/>
+                            <span style="padding-left:16px;font-size:12px;color:#6b7280;">${params.value} enrollments</span><br/>
+                            <span style="padding-left:16px;font-size:13px;font-weight:700;color:#1f2937;">${params.percent.toFixed(1)}%</span>
+                        </div>`;
                     },
-                    itemGap: 15,
+                    extraCssText: `
+                        z-index:40;
+                        background:rgba(255,255,255,0.98);
+                        border:1px solid rgba(0,0,0,0.08);
+                        border-radius:10px;
+                        box-shadow:0 8px 32px rgba(0,0,0,0.18),0 2px 8px rgba(0,0,0,0.1);
+                        padding:10px 14px;
+                        pointer-events:none;
+                    `
+                },
+                legend: {
+                    orient: isMobile ? 'horizontal' : 'vertical',
+                    left: isMobile ? 'center' : 8,
+                    top: isMobile ? 'bottom' : 'center',
+                    bottom: isMobile ? 4 : undefined,
+                    itemGap: isMobile ? 8 : 16,
+                    itemWidth: isMobile ? 10 : 12,
+                    itemHeight: isMobile ? 10 : 12,
+                    icon: 'circle',
+                    textStyle: {
+                        fontSize: isMobile ? 10 : 13,
+                        fontWeight: 500,
+                        color: '#374151'
+                    },
                     formatter: function(name) {
-                        const item = option.series[0].data.find(d => d.name === name);
-                        if (item) {
-                            const percent = ((item.value / total) * 100).toFixed(1);
-                            return `${name}: ${percent}%`;
-                        }
-                        return name;
+                        const valMap = {
+                            'Completed': totalCompleted,
+                            'In Progress': totalInProgress,
+                            'Not Started': totalNotStarted
+                        };
+                        const val = valMap[name] || 0;
+                        const percent = total > 0 ? ((val / total) * 100).toFixed(1) : '0.0';
+                        return `${name} (${percent}%)`;
                     }
                 },
-                series: [{
-                    name: 'Status',
-                    type: 'pie',
-                    radius: ['40%', '70%'],  // Donut chart
-                    center: ['60%', '50%'],
-                    avoidLabelOverlap: true,
-                    hoverAnimation: true,
-                    hoverOffset: 10,
-                    selectedMode: false,
-                    itemStyle: {
-                        borderRadius: 8,
-                        borderColor: '#fff',
-                        borderWidth: 3,
-                        shadowBlur: 20,
-                        shadowOffsetX: 0,
-                        shadowOffsetY: 5,
-                        shadowColor: 'rgba(0, 0, 0, 0.3)'
-                    },
-                    label: {
-                        show: true,
-                        position: 'inside',
-                        fontSize: 14,
-                        fontWeight: 'bold',
-                        color: '#fff',
-                        formatter: '{d}%',
-                        textShadowColor: 'rgba(0, 0, 0, 0.5)',
-                        textShadowBlur: 3
-                    },
-                    emphasis: {
-                        label: {
-                            show: true,
-                            fontSize: 18,
-                            fontWeight: 'bold',
-                            color: '#fff'
-                        },
+                series: [
+                    // Shadow layer — 3D depth effect
+                    {
+                        name: 'shadow',
+                        type: 'pie',
+                        radius: [innerR, outerR],
+                        center: isMobile ? ['50%', '42%'] : ['65%', '50%'],
+                        silent: true,
+                        label: { show: false },
+                        labelLine: { show: false },
                         itemStyle: {
-                            shadowBlur: 30,
+                            color: 'rgba(0,0,0,0.08)',
+                            borderWidth: 0,
+                        },
+                        data: [
+                            { value: totalCompleted,   name: 'Completed' },
+                            { value: totalInProgress,  name: 'In Progress' },
+                            { value: totalNotStarted,  name: 'Not Started' }
+                        ],
+                        tooltip: { show: false },
+                        z: 1,
+                        // Offset downward to create shadow
+                        top: 6
+                    },
+                    // Main pie
+                    {
+                        name: 'Status',
+                        type: 'pie',
+                        radius: [innerR, outerR],
+                        center: isMobile ? ['50%', '42%'] : ['65%', '50%'],
+                        avoidLabelOverlap: false,
+                        hoverAnimation: true,
+                        hoverOffset: isMobile ? 6 : 10,
+                        selectedMode: false,
+                        itemStyle: {
+                            borderRadius: isMobile ? 5 : 8,
+                            borderColor: '#ffffff',
+                            borderWidth: 3,
+                            shadowBlur: 20,
                             shadowOffsetX: 0,
-                            shadowOffsetY: 10,
-                            shadowColor: 'rgba(0, 0, 0, 0.5)'
+                            shadowOffsetY: 6,
+                            shadowColor: 'rgba(0,0,0,0.25)'
                         },
-                        scale: true,
-                        scaleSize: 10
-                    },
-                    labelLine: {
-                        show: false
-                    },
-                    data: [
-                        { 
-                            value: totalCompleted, 
-                            name: 'Completed',
-                            itemStyle: { 
-                                color: {
-                                    type: 'linear',
-                                    x: 0, y: 0, x2: 1, y2: 1,
-                                    colorStops: [
-                                        { offset: 0, color: '#10b981' },
-                                        { offset: 1, color: '#059669' }
-                                    ]
+                        label: { show: false },
+                        labelLine: { show: false },
+                        emphasis: {
+                            label: { show: false },
+                            itemStyle: {
+                                shadowBlur: 40,
+                                shadowOffsetY: 12,
+                                shadowColor: 'rgba(0,0,0,0.4)',
+                                borderWidth: 4
+                            },
+                            scale: true,
+                            scaleSize: isMobile ? 5 : 8
+                        },
+                        z: 2,
+                        data: [
+                            {
+                                value: totalCompleted,
+                                name: 'Completed',
+                                itemStyle: {
+                                    color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+                                        colorStops: [
+                                            { offset: 0, color: '#34d399' },
+                                            { offset: 1, color: '#059669' }
+                                        ]
+                                    }
+                                }
+                            },
+                            {
+                                value: totalInProgress,
+                                name: 'In Progress',
+                                itemStyle: {
+                                    color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+                                        colorStops: [
+                                            { offset: 0, color: '#fcd34d' },
+                                            { offset: 1, color: '#d97706' }
+                                        ]
+                                    }
+                                }
+                            },
+                            {
+                                value: totalNotStarted,
+                                name: 'Not Started',
+                                itemStyle: {
+                                    color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+                                        colorStops: [
+                                            { offset: 0, color: '#cbd5e1' },
+                                            { offset: 1, color: '#64748b' }
+                                        ]
+                                    }
                                 }
                             }
-                        },
-                        { 
-                            value: totalInProgress, 
-                            name: 'In Progress',
-                            itemStyle: { 
-                                color: {
-                                    type: 'linear',
-                                    x: 0, y: 0, x2: 1, y2: 1,
-                                    colorStops: [
-                                        { offset: 0, color: '#f59e0b' },
-                                        { offset: 1, color: '#d97706' }
-                                    ]
-                                }
-                            }
-                        },
-                        { 
-                            value: totalNotStarted, 
-                            name: 'Not Started',
-                            itemStyle: { 
-                                color: {
-                                    type: 'linear',
-                                    x: 0, y: 0, x2: 1, y2: 1,
-                                    colorStops: [
-                                        { offset: 0, color: '#94a3b8' },
-                                        { offset: 1, color: '#64748b' }
-                                    ]
-                                }
-                            }
-                        }
-                    ]
-                }]
+                        ]
+                    }
+                ]
             };
             charts.status.setOption(option);
             
@@ -1166,10 +1336,12 @@
             
             const dataToShow = chartViews.users === 'top10' ? users.slice(0, 10) : users;
             
+            const totalUsers = dataToShow.length;
+
             const option = {
-                tooltip: { 
-                    trigger: 'axis', 
-                    axisPointer: { 
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
                         type: 'shadow',
                         snap: true
                     },
@@ -1185,14 +1357,37 @@
                                 Completed: ${user.completed_courses}`;
                     }
                 },
-                legend: { data: ['Total Courses', 'Completed'] },
-                grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-                xAxis: { 
+                legend: { data: ['Total Courses', 'Completed'], top: 0 },
+                grid: { left: '3%', right: '4%', bottom: totalUsers > 8 ? '60px' : '3%', top: '30px', containLabel: true },
+                xAxis: {
                     type: 'category',
                     data: dataToShow.map(u => u.user_name),
                     axisLabel: { rotate: 45, fontSize: 9 }
                 },
                 yAxis: { type: 'value' },
+                dataZoom: [
+                    {
+                        type: 'inside',
+                        xAxisIndex: 0,
+                        start: 0,
+                        end: 100,
+                        zoomOnMouseWheel: true,
+                        moveOnMouseMove: true,
+                        moveOnMouseWheel: false
+                    },
+                    {
+                        type: 'slider',
+                        xAxisIndex: 0,
+                        start: 0,
+                        end: 100,
+                        height: 14,
+                        bottom: 4,
+                        fillerColor: 'rgba(102,126,234,0.25)',
+                        borderColor: 'rgba(102,126,234,0.3)',
+                        handleStyle: { color: '#667eea' },
+                        show: totalUsers > 8
+                    }
+                ],
                 series: [
                     {
                         name: 'Total Courses',
@@ -1216,38 +1411,68 @@
             const buttons = event.target.parentElement.querySelectorAll('.toggle-btn');
             buttons.forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
-            
+
             if (chartType === 'enrollment') renderEnrollmentChart(coursesData);
             else if (chartType === 'users') renderUsersChart(usersData);
         }
+
+        function restoreChart(chartType) {
+            const chart = charts[chartType];
+            if (!chart) return;
+            chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: 0, end: 100 });
+            chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1, start: 0, end: 100 });
+        }
+
+        function restoreZoomedChart() {
+            if (!_zoomedChart) return;
+            _zoomedChart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: 0, end: 100 });
+            _zoomedChart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1, start: 0, end: 100 });
+        }
+
+        let _zoomedChart = null;
 
         function zoomChart(chartType) {
             const modal = document.getElementById('chartModal');
             const title = document.getElementById('chartModalTitle');
             const content = document.getElementById('chartModalContent');
-            
+
             const titles = {
                 'enrollment': 'Top Courses by Enrollment',
                 'status': 'Overall Completion Status',
                 'users': 'User Progress Overview'
             };
-            
+
             title.textContent = titles[chartType];
+
+            // Dispose previous zoomed chart if any
+            if (_zoomedChart) {
+                _zoomedChart.dispose();
+                _zoomedChart = null;
+            }
+
             modal.classList.add('active');
-            
-            setTimeout(() => {
-                const zoomedChart = echarts.init(content);
-                const originalChart = charts[chartType];
-                if (originalChart) {
-                    const option = originalChart.getOption();
-                    // Ensure tooltip settings are preserved with confine true for stability
-                    if (option.tooltip && option.tooltip[0]) {
-                        option.tooltip[0].confine = true;
+
+            // Wait for modal to be visible and layout settled before init
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    // Set explicit pixel height based on available space
+                    const headerH = modal.querySelector('.flex.justify-between').offsetHeight;
+                    const availH = Math.min(window.innerHeight * 0.88, 600) - headerH;
+                    content.style.height = Math.max(availH, 260) + 'px';
+
+                    _zoomedChart = echarts.init(content);
+                    const originalChart = charts[chartType];
+                    if (originalChart) {
+                        const option = JSON.parse(JSON.stringify(originalChart.getOption()));
+                        if (option.tooltip && option.tooltip[0]) {
+                            option.tooltip[0].confine = true;
+                            option.tooltip[0].appendToBody = false;
+                        }
+                        _zoomedChart.setOption(option);
+                        _zoomedChart.resize();
                     }
-                    zoomedChart.setOption(option);
-                }
-                window.addEventListener('resize', () => zoomedChart.resize());
-            }, 100);
+                });
+            });
         }
 
         async function viewCourseDetails(courseName) {
@@ -1312,16 +1537,19 @@
                 
                 // Render timeline
                 const completedCourses = data.courses.filter(c => c.completion_date);
+                const chartDom = document.getElementById('userTimelineChart');
+                const noDataEl = document.getElementById('userTimelineNoData');
                 if (completedCourses.length > 0) {
+                    chartDom.style.display = 'block';
+                    chartDom.style.height = '300px';
+                    noDataEl.style.display = 'none';
                     setTimeout(() => {
-                        const chartDom = document.getElementById('userTimelineChart');
                         const timelineChart = echarts.init(chartDom);
-                        
                         const option = {
-                            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, confine: true },
                             grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
                             xAxis: { type: 'time' },
-                            yAxis: { 
+                            yAxis: {
                                 type: 'category',
                                 data: completedCourses.map(c => c.course_name.substring(0, 30) + '...'),
                                 axisLabel: { fontSize: 10 }
@@ -1335,6 +1563,9 @@
                         };
                         timelineChart.setOption(option);
                     }, 100);
+                } else {
+                    chartDom.style.display = 'none';
+                    noDataEl.style.display = 'flex';
                 }
             } catch (error) {
                 closeModal('userModal');
@@ -1350,6 +1581,10 @@
         function closeModal(modalId) {
             document.getElementById(modalId).classList.remove('active');
             document.body.classList.remove('modal-open');
+            if (modalId === 'chartModal' && _zoomedChart) {
+                _zoomedChart.dispose();
+                _zoomedChart = null;
+            }
         }
 
         // Status details modal
@@ -1357,6 +1592,11 @@
         let currentStatusView = 'course';
 
         async function showStatusDetails(statusName) {
+            // Hide pie chart tooltip before opening the details modal
+            if (charts.status) {
+                charts.status.dispatchAction({ type: 'hideTip' });
+                charts.status.dispatchAction({ type: 'downplay' });
+            }
             // Show modal immediately with loading state
             openModal('statusDetailsModal');
             document.getElementById('statusDetailsLoading').classList.remove('hidden');
@@ -1791,10 +2031,10 @@
     </script>
 
     <!-- Footer -->
-    <footer class="fixed bottom-0 left-0 right-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 text-white py-3 shadow-lg z-40">
+    <footer class="fixed bottom-0 left-0 right-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 text-white py-2 sm:py-3 shadow-lg z-40">
         <div class="container mx-auto px-4 text-center">
-            <p class="text-sm font-medium">
-                © 2025 Nelco | Safety & Excellence Dashboard - Management (v1.2)
+            <p class="font-medium" style="font-size: clamp(0.55rem, 2vw, 0.875rem);">
+                Safety & Excellence Dashboard (v1.2) © 2025 Nelco
             </p>
         </div>
     </footer>
