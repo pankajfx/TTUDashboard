@@ -244,7 +244,7 @@ def send_course_assignment_email(user_email, user_name, course_name, deadline):
                     <p style="font-weight:600">Dear {user_name},</p> <p>A new course has been assigned to you as part of our Safety & Health Excellence program. Kindly ignore if already completed.</p>
                 </p>
             </div>
-            
+
             <table class="details-table">
                 <tr>
                     <td class="label">📖 Course Name:</td>
@@ -255,15 +255,18 @@ def send_course_assignment_email(user_email, user_name, course_name, deadline):
                     <td class="value">{deadline}</td>
                 </tr>
             </table>
-            
+
             <p style="margin: 15px 0; font-size: 14px; color: #495057;">
-                Please log in to the Tata Tommorrow University portal to access your course materials and begin your learning journey.
+                Please log in to the Tata Tomorrow University portal to access your course materials and begin your learning journey.
             </p>
-            
+
             <center>
-                <a href="#" class="cta-button">Access Course Portal</a>
+                <a href="https://www.tmtctata.com/" class="cta-button"
+                   style="display:inline-block;background:#667eea;color:#ffffff;padding:12px 28px;text-decoration:none;border-radius:6px;font-weight:600;font-size:14px;margin:15px 0;">
+                    Access Course Portal
+                </a>
             </center>
-        
+
         <div class="footer">
             <p class="signature">
                 Regards,<br>
@@ -286,7 +289,8 @@ Course Details:
 📖 Course Name: {course_name}
 📅 Deadline: {deadline}
 
-Please log in to the Tata Tommorrow University portal to access your course materials.
+Please log in to the Tata Tomorrow University portal to access your course materials:
+https://www.tmtctata.com/
 
 Regards,
 Safety & Health Excellence Support Team
@@ -482,6 +486,13 @@ def send_deadline_reminder_email(user_email, user_name, course_name, deadline, d
             <p style="margin: 15px 0; font-size: 14px; color: #495057;">
                 Please complete this course before the deadline to ensure your progress is recorded and compliance requirements are met.
             </p>
+
+            <div style="text-align:center;margin:0 0 8px;">
+                <a href="https://www.tmtctata.com/"
+                   style="display:inline-block;background:{urgency_color};color:#ffffff;padding:13px 32px;text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;letter-spacing:0.3px;">
+                    Access Course Portal
+                </a>
+            </div>
         </div>
         
         <div class="footer">
@@ -509,6 +520,9 @@ Course Details:
 ⏳ Days Remaining: {days_remaining} days
 
 Please complete this course before the deadline to ensure your progress is recorded.
+
+Access the Tata Tomorrow University portal here:
+https://www.tmtctata.com/
 
 Regards,
 Safety & Health Excellence Support Team
