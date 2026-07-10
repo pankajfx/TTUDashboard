@@ -163,6 +163,9 @@
                 <button class="tab-btn text-sm sm:text-base" onclick="switchTab('assignments')">
                     Course Assignments
                 </button>
+                <button class="tab-btn text-sm sm:text-base" onclick="switchTab('active-assignments')">
+                    Active Assignments
+                </button>
             </div>
         </div>
 
@@ -240,7 +243,7 @@
 
         <!-- Course Assignments Tab -->
         <div id="tab-assignments" class="tab-content hidden mb-6 sm:mb-10">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-8">
+            <div class="grid grid-cols-1 gap-4 sm:gap-8">
                 <!-- Create Assignment Form -->
                 <div class="card p-6" style="overflow: hidden;">
                     <h2 class="text-xl font-bold text-gray-900 mb-4">Create Course Assignment</h2>
@@ -338,12 +341,48 @@
                         </button>
                     </form>
                 </div>
+            </div>
+        </div>
 
-                <!-- Assignments List -->
-                <div class="card p-6">
-                    <h2 class="text-xl font-bold text-gray-900 mb-4">Active Assignments</h2>
-                    <div id="assignmentsList" class="space-y-4 overflow-y-auto">
-                        <!-- Assignments will be loaded here -->
+        <!-- Active Assignments Tab -->
+        <div id="tab-active-assignments" class="tab-content hidden mb-6 sm:mb-10">
+            <div class="card p-6">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+                    <h2 class="text-xl font-bold text-gray-900">Active Assignments</h2>
+                    <div class="flex items-center gap-2">
+                        <label for="assignmentFyFilter" class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Financial Year</label>
+                        <select id="assignmentFyFilter" onchange="onAssignmentFyChange(this.value)"
+                            class="text-sm font-semibold text-gray-800 bg-white border-2 border-indigo-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 shadow-sm cursor-pointer">
+                            <option value="all">All Financial Years</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Search -->
+                <div class="mb-4">
+                    <input type="text" id="assignmentSearchInput" placeholder="Search by assignment or course name..."
+                        oninput="onAssignmentSearch(this.value)"
+                        class="input-field w-full px-4 py-2 rounded-lg" />
+                    <div id="assignmentResultsCount" class="text-sm text-gray-600 mt-2"></div>
+                </div>
+
+                <div id="assignmentsList" class="space-y-4 overflow-y-auto">
+                    <!-- Assignments will be loaded here -->
+                </div>
+
+                <!-- Pagination -->
+                <div id="assignmentPagination" class="hidden flex flex-wrap items-center justify-between gap-3 mt-4 pt-4 border-t border-gray-200">
+                    <p id="assignmentPageInfo" class="text-sm text-gray-600"></p>
+                    <div class="flex items-center gap-2">
+                        <button id="assignmentPrevBtn" onclick="changeAssignmentPage(-1)"
+                            class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                            ← Prev
+                        </button>
+                        <span id="assignmentPageNumbers" class="flex items-center gap-1"></span>
+                        <button id="assignmentNextBtn" onclick="changeAssignmentPage(1)"
+                            class="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                            Next →
+                        </button>
                     </div>
                 </div>
             </div>
@@ -469,8 +508,9 @@
                     </button>
                 </div>
 
-                <!-- Stats Cards -->
-                <div class="grid grid-cols-5 gap-1.5 sm:gap-3 mb-3">
+                <!-- Stats Cards (6 columns via inline grid-template so it does not depend on
+                     purged Tailwind grid-cols-6, which is not in the prebuilt CSS) -->
+                <div class="grid gap-1.5 sm:gap-3 mb-3" style="grid-template-columns:repeat(6,minmax(0,1fr));">
                     <div class="bg-blue-50 border border-blue-100 rounded-lg px-2 py-1.5 sm:px-3 sm:py-2 flex flex-col items-center text-center">
                         <p class="text-gray-500 leading-tight" style="font-size:0.6rem;">Total</p>
                         <p id="statTotalUsers" class="font-bold text-blue-600 leading-tight text-sm sm:text-xl">0</p>
@@ -486,6 +526,10 @@
                     <div class="bg-red-50 border border-red-100 rounded-lg px-2 py-1.5 sm:px-3 sm:py-2 flex flex-col items-center text-center">
                         <p class="text-gray-500 leading-tight" style="font-size:0.6rem;">Not Started</p>
                         <p id="statNotStarted" class="font-bold text-red-600 leading-tight text-sm sm:text-xl">0</p>
+                    </div>
+                    <div id="statStaleCard" class="bg-orange-50 border border-orange-100 rounded-lg px-2 py-1.5 sm:px-3 sm:py-2 flex flex-col items-center text-center">
+                        <p class="text-gray-500 leading-tight" style="font-size:0.6rem;" title="Completed before the assignment was created — must be redone">Stale</p>
+                        <p id="statStale" class="font-bold text-orange-600 leading-tight text-sm sm:text-xl">0</p>
                     </div>
                     <div class="bg-purple-50 border border-purple-100 rounded-lg px-2 py-1.5 sm:px-3 sm:py-2 flex flex-col items-center text-center">
                         <p class="text-gray-500 leading-tight" style="font-size:0.6rem;">Completion</p>
@@ -808,6 +852,8 @@
             if (tabName === 'assignments') {
                 loadCourses();
                 loadUsersForAssignment();
+            } else if (tabName === 'active-assignments') {
+                loadAssignments();
             }
         }
 
@@ -1415,10 +1461,115 @@
         });
 
         // Load assignments
+        // ── Financial-year filtering (India FY: 1 Apr → 31 Mar) ──────────────
+        let assignmentFyFilter = 'all';
+        let assignmentSearchTerm = '';
+        let assignmentPage = 1;
+        const ASSIGNMENTS_PER_PAGE = 8;
+
+        // Derive FY start year from a "YYYY-MM-DD ..." date string; null if unparseable.
+        function fyStartYear(dateStr) {
+            if (!dateStr) return null;
+            const m = String(dateStr).match(/^(\d{4})-(\d{2})/);
+            if (!m) return null;
+            const year = parseInt(m[1], 10), month = parseInt(m[2], 10);
+            return month >= 4 ? year : year - 1;
+        }
+        function fyLabel(startYear) {
+            return `${startYear}-${String(startYear + 1).slice(-2)}`;
+        }
+
+        // Rebuild the FY dropdown from the current assignments, preserving selection.
+        function populateAssignmentFyFilter() {
+            const select = document.getElementById('assignmentFyFilter');
+            if (!select) return;
+            const counts = {};
+            assignments.forEach(a => {
+                const sy = fyStartYear(a.created_date);
+                if (sy !== null) counts[sy] = (counts[sy] || 0) + 1;
+            });
+            const years = Object.keys(counts).map(Number).sort((a, b) => b - a);
+            let html = `<option value="all">All Financial Years (${assignments.length})</option>`;
+            years.forEach(sy => {
+                html += `<option value="${sy}">FY ${fyLabel(sy)} — ${counts[sy]} assignment${counts[sy] !== 1 ? 's' : ''}</option>`;
+            });
+            select.innerHTML = html;
+            // Reset to 'all' if the previously selected FY no longer exists.
+            if (assignmentFyFilter !== 'all' && !(assignmentFyFilter in counts)) assignmentFyFilter = 'all';
+            select.value = assignmentFyFilter;
+        }
+
+        function onAssignmentFyChange(value) {
+            assignmentFyFilter = value;
+            assignmentPage = 1;
+            renderAssignments();
+        }
+
+        function onAssignmentSearch(value) {
+            assignmentSearchTerm = value;
+            assignmentPage = 1;
+            renderAssignments();
+        }
+
+        function changeAssignmentPage(delta) {
+            assignmentPage += delta;
+            renderAssignments();
+        }
+
+        function goToAssignmentPage(page) {
+            assignmentPage = page;
+            renderAssignments();
+        }
+
+        // Assignments matching the current FY + search filters.
+        function getFilteredAssignments() {
+            let list = assignmentFyFilter === 'all'
+                ? assignments
+                : assignments.filter(a => fyStartYear(a.created_date) === parseInt(assignmentFyFilter, 10));
+            const term = assignmentSearchTerm.trim().toLowerCase();
+            if (term) {
+                list = list.filter(a =>
+                    (a.course_name && a.course_name.toLowerCase().includes(term)) ||
+                    (a.title && a.title.toLowerCase().includes(term))
+                );
+            }
+            return list;
+        }
+
+        // Render pagination controls for the filtered assignment set.
+        function renderAssignmentPagination(totalItems, totalPages) {
+            const pag = document.getElementById('assignmentPagination');
+            if (totalPages <= 1) { pag.classList.add('hidden'); return; }
+            pag.classList.remove('hidden');
+
+            const start = (assignmentPage - 1) * ASSIGNMENTS_PER_PAGE + 1;
+            const end = Math.min(assignmentPage * ASSIGNMENTS_PER_PAGE, totalItems);
+            document.getElementById('assignmentPageInfo').textContent =
+                `Showing ${start}–${end} of ${totalItems} assignment${totalItems !== 1 ? 's' : ''}`;
+
+            document.getElementById('assignmentPrevBtn').disabled = assignmentPage <= 1;
+            document.getElementById('assignmentNextBtn').disabled = assignmentPage >= totalPages;
+
+            // Windowed page numbers (max 5 around the current page).
+            let from = Math.max(1, assignmentPage - 2);
+            let to = Math.min(totalPages, from + 4);
+            from = Math.max(1, to - 4);
+            let html = '';
+            for (let p = from; p <= to; p++) {
+                const active = p === assignmentPage;
+                html += `<button onclick="goToAssignmentPage(${p})"
+                    class="px-2.5 py-1 text-sm rounded-lg transition ${active
+                        ? 'bg-blue-600 text-white font-semibold'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}">${p}</button>`;
+            }
+            document.getElementById('assignmentPageNumbers').innerHTML = html;
+        }
+
         async function loadAssignments() {
             try {
                 const response = await fetch('/api/settings/assignments');
                 assignments = await response.json();
+                populateAssignmentFyFilter();
                 renderAssignments();
             } catch (error) {
                 console.error('Error loading assignments:', error);
@@ -1428,13 +1579,36 @@
         // Render assignments with completion percentage
         async function renderAssignments() {
             const assignmentsList = document.getElementById('assignmentsList');
+            const pag = document.getElementById('assignmentPagination');
+            const countEl = document.getElementById('assignmentResultsCount');
             if (assignments.length === 0) {
                 assignmentsList.innerHTML = '<p class="text-gray-500 text-center py-4">No assignments created yet</p>';
+                if (pag) pag.classList.add('hidden');
+                if (countEl) countEl.textContent = '';
                 return;
             }
 
-            // Fetch completion data for each assignment
-            const assignmentsWithStats = await Promise.all(assignments.map(async (assignment) => {
+            // Apply FY + search filters.
+            const filtered = getFilteredAssignments();
+            if (countEl) {
+                countEl.textContent = `Showing ${filtered.length} of ${assignments.length} assignment${assignments.length !== 1 ? 's' : ''}`;
+            }
+
+            if (filtered.length === 0) {
+                assignmentsList.innerHTML = '<p class="text-gray-500 text-center py-4">No assignments match the current filters</p>';
+                if (pag) pag.classList.add('hidden');
+                return;
+            }
+
+            // Clamp page and slice for pagination.
+            const totalPages = Math.ceil(filtered.length / ASSIGNMENTS_PER_PAGE);
+            if (assignmentPage > totalPages) assignmentPage = totalPages;
+            if (assignmentPage < 1) assignmentPage = 1;
+            const pageStart = (assignmentPage - 1) * ASSIGNMENTS_PER_PAGE;
+            const visibleAssignments = filtered.slice(pageStart, pageStart + ASSIGNMENTS_PER_PAGE);
+
+            // Fetch completion data for the current page only
+            const assignmentsWithStats = await Promise.all(visibleAssignments.map(async (assignment) => {
                 try {
                     const response = await fetch(`/api/settings/assignments/${assignment.id}`);
                     if (response.ok) {
@@ -1488,7 +1662,7 @@
                         <div class="text-xs text-gray-600 mt-2">
                             <span class="text-green-600">✓ ${h(assignment.stats.completed)}</span> |
                             <span class="text-yellow-600">⟳ ${h(assignment.stats.in_progress)}</span> |
-                            <span class="text-red-600">✗ ${h(assignment.stats.not_started)}</span>
+                            <span class="text-red-600">✗ ${h(assignment.stats.not_started)}</span>${assignment.stats.stale ? ` | <span class="text-orange-600" title="Stale — completed before assigned, must redo">⚠ ${h(assignment.stats.stale)}</span>` : ''}
                         </div>
                     ` : ''}
                     <p class="text-xs text-gray-400 mt-2">Created: ${h(assignment.created_date)}</p>
@@ -1508,6 +1682,8 @@
             assignmentsList.querySelectorAll('.delete-assignment-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => { e.stopPropagation(); deleteAssignment(parseInt(btn.dataset.aid, 10)); });
             });
+
+            renderAssignmentPagination(filtered.length, totalPages);
         }
 
         // Delete assignment
@@ -1557,8 +1733,10 @@
                 currentView = 'assignment';
 
                 // Update modal header
-                document.getElementById('modalCourseName').textContent = currentAssignmentData.assignment.course_name;
-                document.getElementById('modalDeadline').textContent = `Deadline: ${currentAssignmentData.assignment.deadline} | Created: ${currentAssignmentData.assignment.created_date}`;
+                const a = currentAssignmentData.assignment;
+                document.getElementById('modalCourseName').textContent = a.course_name;
+                document.getElementById('modalDeadline').textContent =
+                    `Assignment #${a.id} · Deadline: ${a.deadline} · Created: ${a.created_date}`;
 
                 // Hide loading, show content
                 document.getElementById('assignmentDetailsLoading').classList.add('hidden');
@@ -1606,6 +1784,9 @@
             document.getElementById('statCompleted').textContent = data.completed;
             document.getElementById('statInProgress').textContent = data.in_progress;
             document.getElementById('statNotStarted').textContent = data.not_started;
+            document.getElementById('statStale').textContent = (data.stale != null ? data.stale : 0);
+            // "Stale" only applies to the assignment view (needs a creation date to compare against)
+            document.getElementById('statStaleCard').style.display = (view === 'assignment') ? '' : 'none';
             document.getElementById('statCompletionRate').textContent = data.completion_rate.toFixed(1) + '%';
 
             // Update users table
@@ -1621,14 +1802,20 @@
             }
 
             tbody.innerHTML = users.map(user => {
-                const statusClass = user.completion_status === 'Completed' ? 'bg-green-100 text-green-800' :
-                    user.completion_status === 'Current' ? 'bg-yellow-100 text-yellow-800' :
-                        user.untouched ? 'bg-gray-100 text-gray-800' :
-                            'bg-red-100 text-red-800';
+                const isStale = !!user.stale;
+                const statusClass = isStale ? 'bg-orange-100 text-orange-800' :
+                    user.completion_status === 'Completed' ? 'bg-green-100 text-green-800' :
+                        user.completion_status === 'Current' ? 'bg-yellow-100 text-yellow-800' :
+                            user.untouched ? 'bg-gray-100 text-gray-800' :
+                                'bg-red-100 text-red-800';
 
-                const statusText = user.untouched ? 'Not Touched' : user.completion_status || 'Not Started';
-                const progress = parseFloat(user.completion_percentage || 0);
+                const statusText = isStale ? 'Stale · redo' : (user.untouched ? 'Not Touched' : user.completion_status || 'Not Started');
+                // a stale completion contributes 0% toward this assignment
+                const progress = isStale ? 0 : parseFloat(user.completion_percentage || 0);
                 const progressColor = progress >= 75 ? 'bg-green-500' : progress >= 50 ? 'bg-yellow-500' : 'bg-red-500';
+                const dateCell = user.completion_date
+                    ? h(user.completion_date) + (isStale ? ' <span class="text-orange-600 text-xs">(before assigned)</span>' : '')
+                    : '-';
 
                 return `
                     <tr class="hover:bg-gray-50">
@@ -1647,7 +1834,7 @@
                                 <span class="text-xs text-gray-600">${progress.toFixed(0)}%</span>
                             </div>
                         </td>
-                        <td class="px-4 py-3 text-sm text-gray-600">${h(user.completion_date || '-')}</td>
+                        <td class="px-4 py-3 text-sm text-gray-600">${dateCell}</td>
                     </tr>
                 `;
             }).join('');

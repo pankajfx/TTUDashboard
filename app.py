@@ -13,6 +13,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from functools import wraps
 from email_service import send_course_assignment_email, send_deadline_reminder_email, send_course_removal_email
+import assignment_analytics as aa
 import openpyxl
 from io import BytesIO
 import threading
@@ -628,6 +629,7 @@ def create_assignment():
         'created_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'created_by': session.get('username')
     }
+    assignment['title'] = aa.assignment_title(assignment)
 
     assignments.append(assignment)
     assignments_data['assignments'] = assignments
@@ -665,8 +667,7 @@ def get_assignment_details(assignment_id):
         # Load API data
         api_data = load_data()
         course_name = assignment['course_name']
-        assigned_users = assignment['user_emails']
-        
+
         # Get all users from API for this course (Course View)
         course_records = [r for r in api_data if r.get('Activity_Name', r.get('Course_Name')) == course_name]
         
@@ -684,36 +685,34 @@ def get_assignment_details(assignment_id):
                     'completion_date': record.get('Course_Completion_Date_(YYYY-MM-DD)', '').strip()
                 }
         
-        # Assignment View: Only assigned users
+        # Assignment View: staleness-aware. A completion counts only if it is dated
+        # on/after the assignment was created; completions that predate the assignment
+        # are "stale" (the user must complete it again) and do NOT count as done.
+        # Uses the same engine as the FY dashboard so both views agree.
+        api_index = aa.build_api_index(api_data)
+        prog = aa.compute_assignment_progress(assignment, api_index)
+        status_display = {'completed': 'Completed', 'in_progress': 'Current',
+                          'stale': 'Stale', 'not_started': 'Not Started'}
         assignment_users = []
-        for email in assigned_users:
-            if email in course_users:
-                # User exists in API - has attempted course
-                assignment_users.append(course_users[email])
-            else:
-                # User doesn't exist in API - hasn't touched course
-                assignment_users.append({
-                    'email': email,
-                    'name': '',
-                    'completion_percentage': '0',
-                    'completion_status': 'Not Started',
-                    'activity_status': 'Not Attempted',
-                    'completion_date': '',
-                    'untouched': True
-                })
-        
-        # Calculate Course View stats
+        for u in prog['users']:
+            assignment_users.append({
+                'email': u['email'],
+                'name': u['name'],
+                # a stale completion contributes 0% toward this assignment
+                'completion_percentage': '0' if u['stale'] else str(u['percentage']),
+                'completion_status': status_display[u['status']],
+                'activity_status': '',
+                'completion_date': u['completion_date'],
+                'untouched': u['untouched'],
+                'stale': u['stale'],
+            })
+
+        # Course View stats (course-wide, raw API — no assignment-date staleness)
         course_completed = sum(1 for u in course_users.values() if u['completion_status'] == 'Completed')
         course_in_progress = sum(1 for u in course_users.values() if u['completion_status'] == 'Current')
         course_not_started = len(course_users) - course_completed - course_in_progress
         course_completion_rate = (course_completed / len(course_users) * 100) if len(course_users) > 0 else 0
-        
-        # Calculate Assignment View stats
-        assignment_completed = sum(1 for u in assignment_users if u['completion_status'] == 'Completed')
-        assignment_in_progress = sum(1 for u in assignment_users if u['completion_status'] == 'Current')
-        assignment_not_started = sum(1 for u in assignment_users if u.get('untouched') or u['completion_status'] == 'Not Started')
-        assignment_completion_rate = (assignment_completed / len(assigned_users) * 100) if len(assigned_users) > 0 else 0
-        
+
         return jsonify({
             'assignment': assignment,
             'course_view': {
@@ -721,15 +720,17 @@ def get_assignment_details(assignment_id):
                 'completed': course_completed,
                 'in_progress': course_in_progress,
                 'not_started': course_not_started,
+                'stale': 0,
                 'completion_rate': round(course_completion_rate, 2),
                 'users': list(course_users.values())
             },
             'assignment_view': {
-                'total_users': len(assigned_users),
-                'completed': assignment_completed,
-                'in_progress': assignment_in_progress,
-                'not_started': assignment_not_started,
-                'completion_rate': round(assignment_completion_rate, 2),
+                'total_users': prog['total'],
+                'completed': prog['completed'],
+                'in_progress': prog['in_progress'],
+                'not_started': prog['not_started'],
+                'stale': prog['stale'],
+                'completion_rate': prog['completion_rate'],
                 'users': assignment_users
             }
         })
@@ -767,13 +768,11 @@ def send_assignment_reminders(assignment_id):
         except:
             days_remaining = 0
         
-        # Get completed users from API
-        course_records = [r for r in api_data if r.get('Activity_Name', r.get('Course_Name')) == course_name]
-        completed_users = set()
-        for record in course_records:
-            email = record.get('User_Mail_ID', '')
-            if record.get('Course_Completion_Status') == 'Completed':
-                completed_users.add(email)
+        # Only VALID completions (dated on/after the assignment) are skipped.
+        # A stale completion means the user must redo the course, so they still
+        # get a reminder — same staleness rule as the dashboards.
+        _prog = aa.compute_assignment_progress(assignment, aa.build_api_index(api_data))
+        completed_users = {u['email'] for u in _prog['users'] if u['status'] == 'completed'}
         
         # Get users data for names
         users_data = load_json_file(USERS_FILE, {'users': []})
@@ -990,7 +989,8 @@ def bulk_upload_assignment():
             'created_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'created_by': session.get('username')
         }
-        
+        assignment['title'] = aa.assignment_title(assignment)
+
         assignments.append(assignment)
         assignments_data['assignments'] = assignments
         
@@ -1129,7 +1129,21 @@ def fetch_fresh_data_from_api():
     logger.info("Fetching fresh data from API (this may take 3+ minutes)...")
     response = requests.get(API_URL, timeout=API_TIMEOUT)
     response.raise_for_status()
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError:
+        # Body was empty or not JSON (e.g. an HTML login/error page returned
+        # with a 200 status). Surface what we actually received so the real
+        # problem (expired token, redirect, wrong URL) is diagnosable.
+        body_preview = (response.text or '').strip()[:500]
+        logger.error(
+            "API did not return JSON. status=%s content-type=%s final_url=%s body[:500]=%r",
+            response.status_code,
+            response.headers.get('Content-Type'),
+            response.url,
+            body_preview,
+        )
+        raise
     logger.info(f"Successfully fetched {len(data)} records from API")
     return data
 
@@ -1455,6 +1469,94 @@ def get_user_details(user_email):
         import traceback
         logger.error(f"Error in get_user_details: {traceback.format_exc()}")
         return jsonify({"error": "Failed to load user details"}), 500
+
+# ── FY / Assignment Analytics dashboard ─────────────────────────────────────
+# A second dashboard that analyses progress by *assignment* and *financial year*
+# (see assignment_analytics.py). Unlike /api/summary (raw API), completion % here
+# is measured against everyone assigned, and completions predating the assignment
+# are treated as stale. Read-only analytics — open to any logged-in user.
+
+def _load_assignments():
+    return load_json_file(ASSIGNMENTS_FILE, {'assignments': []}).get('assignments', [])
+
+
+@app.route('/assignments-dashboard')
+@login_required
+def assignments_dashboard():
+    return render_template('assignments.html', username=session.get('username'))
+
+
+@app.route('/api/assignments-summary')
+@login_required
+def api_assignments_summary():
+    """Full FY dashboard payload for a scope (?fy=current|all|<start_year>)."""
+    try:
+        fy = request.args.get('fy', 'current')
+        summary = aa.build_summary(_load_assignments(), load_data(), selected=fy)
+        return jsonify(summary)
+    except Exception:
+        import traceback
+        logger.error(f"Error in api_assignments_summary: {traceback.format_exc()}")
+        return jsonify({'error': 'Failed to build assignments summary'}), 500
+
+
+@app.route('/api/assignment-progress/<int:assignment_id>')
+@login_required
+def api_assignment_progress(assignment_id):
+    """Per-user progress for one assignment (drill-down modal), with stale flags."""
+    try:
+        assignment = next((a for a in _load_assignments() if a.get('id') == assignment_id), None)
+        if not assignment:
+            return jsonify({'error': 'Assignment not found'}), 404
+        index = aa.build_api_index(load_data())
+        return jsonify(aa.compute_assignment_progress(assignment, index))
+    except Exception:
+        import traceback
+        logger.error(f"Error in api_assignment_progress: {traceback.format_exc()}")
+        return jsonify({'error': 'Failed to load assignment progress'}), 500
+
+
+@app.route('/api/fy-user/<path:user_email>')
+@login_required
+def api_fy_user(user_email):
+    """A single user's assignment-by-assignment breakdown within an FY scope."""
+    try:
+        fy = request.args.get('fy', 'current')
+        assignments = _load_assignments()
+        index = aa.build_api_index(load_data())
+        resolved = aa.resolve_selected_fy(fy, assignments)
+
+        rows = []
+        user_name = ''
+        for a in assignments:
+            p = aa.compute_assignment_progress(a, index)
+            if resolved != 'all' and p['fy_start_year'] != resolved:
+                continue
+            u = next((x for x in p['users'] if x['email'] == user_email), None)
+            if not u:
+                continue
+            if u['name'] and not user_name:
+                user_name = u['name']
+            rows.append({
+                'assignment_id': a.get('id'),
+                'title': p['title'],
+                'course_name': p['course_name'],
+                'created_date': p['created_date'],
+                'fy_label': p['fy_label'],
+                'deadline': p['deadline'],
+                'status': u['status'],
+                'percentage': u['percentage'],
+                'completion_date': u['completion_date'],
+                'stale': u['stale'],
+                'untouched': u['untouched'],
+            })
+        rows.sort(key=lambda r: r['created_date'], reverse=True)
+        return jsonify({'user_email': user_email, 'user_name': user_name, 'assignments': rows})
+    except Exception:
+        import traceback
+        logger.error(f"Error in api_fy_user: {traceback.format_exc()}")
+        return jsonify({'error': 'Failed to load user assignment details'}), 500
+
 
 # Initialize cache when the module is imported (covers both direct run and
 # Waitress/any WSGI server that imports app without running __main__).

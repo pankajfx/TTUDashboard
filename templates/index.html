@@ -525,6 +525,12 @@
                         <span class="badge-dot"></span>
                         <span class="badge-text">Live Data</span>
                     </div>
+                    <a href="{{ url_for('assignments_dashboard') }}" class="settings-btn" title="FY / Assignment Analytics">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-6a2 2 0 012-2h2a2 2 0 012 2v6m-6 0h6m4 0V5a2 2 0 00-2-2H7a2 2 0 00-2 2v12m14 0H3"></path>
+                        </svg>
+                        <span>FY Analytics</span>
+                    </a>
                     {% if username == 'admin' %}
                     <a href="{{ url_for('settings') }}" class="settings-btn">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
