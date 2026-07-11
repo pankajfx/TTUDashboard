@@ -11,7 +11,9 @@ So course completion % computed from the API alone is misleading: if 100 users
 are assigned a course but only 2 ever logged in and both finished, the API shows
 2 users @ 100%. This engine instead measures progress against *everyone assigned*
 in an assignment, bucketed by the Financial Year the assignment was created in,
-and discounts "stale" completions (finished before the assignment was created).
+and discounts "stale" completions (finished outside the assignment's validity
+window — its effective_from..effective_to range, which defaults to "from the
+creation date, open-ended").
 """
 
 from datetime import datetime, timedelta
@@ -52,12 +54,15 @@ def current_fy_start_year(now: datetime = None) -> int:
 
 # ── Date / value parsing (tolerant of the messy API strings) ────────────────
 def parse_created(value: str):
-    """Parse an assignment created_date. Accepts 'YYYY-MM-DD HH:MM:SS' or
-    'YYYY-MM-DD'. Returns a datetime or None."""
+    """Parse an assignment created_date / effective_from / effective_to. Accepts
+    'YYYY-MM-DD HH:MM:SS', 'YYYY-MM-DD HH:MM', 'YYYY-MM-DD', and the ISO 'T'
+    separator variants that HTML <input type="datetime-local"> emits
+    ('YYYY-MM-DDTHH:MM'). Returns a datetime or None."""
     if not value:
         return None
     value = str(value).strip()
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
+                "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"):
         try:
             return datetime.strptime(value, fmt)
         except ValueError:
@@ -124,20 +129,37 @@ def build_api_index(api_data):
     return index
 
 
-def _classify_user(records, created_dt):
-    """Given all API records for one (course, user) and the assignment creation
-    datetime, return (status, percentage, completion_date_str, stale_bool).
+def _completion_in_window(d, window_start, window_end) -> bool:
+    """Does a completion datetime `d` fall inside the assignment's validity window?
+
+    Day-granular (the API returns date-only completions). Either bound may be None
+    meaning "open" on that side. A None `d` (Completed but the API gave no date) is
+    unverifiable, so it gets the benefit of the doubt and counts."""
+    if d is None:
+        return True
+    day = d.date()
+    if window_start is not None and day < window_start.date():
+        return False
+    if window_end is not None and day > window_end.date():
+        return False
+    return True
+
+
+def _classify_user(records, window_start, window_end):
+    """Given all API records for one (course, user) and the assignment's validity
+    window, return (status, percentage, completion_date_str, stale_bool).
 
     status ∈ {'completed', 'in_progress', 'not_started'}.
-    A completion counts only if it is dated on/after the assignment was created.
-    A completion strictly before creation is a "stale" prior completion: it does
-    NOT count for this assignment, so the user is classified 'not_started' (they
-    must redo it) with the stale flag set so callers can annotate the row."""
+    A completion counts only if it falls within [window_start, window_end]
+    (inclusive, day granularity; either bound may be None = open on that side).
+    A completion *outside* the window — finished before it opened OR after it
+    closed — is "stale": it does NOT count for this assignment, so the user is
+    classified 'not_started' (they must (re)do it inside the window) with the
+    stale flag set so callers can annotate the row."""
     if not records:
         # user is assigned but never appeared in the API → never opened portal
         return "not_started", 0.0, "", False
 
-    created_day = created_dt.date() if created_dt else None
     completed_dates = []          # datetimes of Completed records (None = no date)
     has_completed = False
     max_pct = 0.0
@@ -155,15 +177,13 @@ def _classify_user(records, created_dt):
             completed_dates.append(parse_completion(r.get("Course_Completion_Date_(YYYY-MM-DD)")))
 
     if has_completed:
-        # valid if any completion has no date (unverifiable → benefit of doubt)
-        # or is dated on/after the assignment creation day.
         valid = [d for d in completed_dates
-                 if d is None or created_day is None or d.date() >= created_day]
+                 if _completion_in_window(d, window_start, window_end)]
         if valid:
             dated = [d for d in valid if d is not None]
             latest = max(dated) if dated else None
             return "completed", 100.0, (latest.strftime("%Y-%m-%d") if latest else ""), False
-        # every completion predates the assignment → the prior completion is
+        # every completion falls outside the window → the prior completion is
         # "stale": it does not count here, so treat the user as Not Started
         # (must redo). Keep the flag + date so the row can note the prior finish.
         stale_dates = [d for d in completed_dates if d is not None]
@@ -182,6 +202,13 @@ def compute_assignment_progress(assignment: dict, api_index) -> dict:
     course = (assignment.get("course_name") or "").strip()
     emails = assignment.get("user_emails", []) or []
     created_dt = parse_created(assignment.get("created_date", ""))
+    # Validity window: a completion must fall within [effective_from, effective_to]
+    # to count. effective_from defaults to the creation datetime (back-compat with
+    # assignments that predate this feature); effective_to is optional (None = open
+    # ended). FY bucketing stays on the creation date — the FY is about when the
+    # assignment was created, not the window it validates.
+    window_start = parse_created(assignment.get("effective_from", "")) or created_dt
+    window_end = parse_created(assignment.get("effective_to", ""))
     sy, label = (fy_of_datetime(created_dt) if created_dt else (None, "Unknown"))
 
     users = []
@@ -189,7 +216,7 @@ def compute_assignment_progress(assignment: dict, api_index) -> dict:
     for email in emails:
         email = (email or "").strip()
         records = api_index.get((course, email), [])
-        status, pct, cdate, is_stale = _classify_user(records, created_dt)
+        status, pct, cdate, is_stale = _classify_user(records, window_start, window_end)
         is_untouched = not records
         name = ""
         if records:
@@ -224,6 +251,8 @@ def compute_assignment_progress(assignment: dict, api_index) -> dict:
         "title": assignment_title(assignment),
         "course_name": course,
         "created_date": assignment.get("created_date", ""),
+        "effective_from": window_start.strftime("%Y-%m-%d %H:%M:%S") if window_start else "",
+        "effective_to": window_end.strftime("%Y-%m-%d %H:%M:%S") if window_end else "",
         "deadline": assignment.get("deadline", ""),
         "fy_start_year": sy,
         "fy_label": label,

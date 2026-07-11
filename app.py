@@ -14,6 +14,7 @@ from werkzeug.utils import secure_filename
 from functools import wraps
 from email_service import send_course_assignment_email, send_deadline_reminder_email, send_course_removal_email
 import assignment_analytics as aa
+import db
 import openpyxl
 from io import BytesIO
 import threading
@@ -245,10 +246,18 @@ def superadmin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# Helper functions for data persistence
+# Helper functions for data persistence.
+# Users and assignments now live in SQLite (see db.py); these two helpers keep
+# their original signatures so every existing call site works unchanged, but they
+# dispatch to the database by filename. Any other filename still falls back to
+# plain JSON on disk (e.g. bundled/legacy data).
 def load_json_file(filename, default=None):
-    """Load data from JSON file"""
+    """Load a data store (SQLite-backed for users/assignments; JSON otherwise)."""
     try:
+        if filename == USERS_FILE:
+            return db.read_users()
+        if filename == ASSIGNMENTS_FILE:
+            return db.read_assignments()
         if os.path.exists(filename):
             with open(filename, 'r', encoding='utf-8') as f:
                 return json.load(f)
@@ -257,8 +266,12 @@ def load_json_file(filename, default=None):
     return default if default is not None else {}
 
 def save_json_file(filename, data):
-    """Save data to JSON file"""
+    """Persist a data store (SQLite-backed for users/assignments; JSON otherwise)."""
     try:
+        if filename == USERS_FILE:
+            return db.write_users(data)
+        if filename == ASSIGNMENTS_FILE:
+            return db.write_assignments(data)
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         return True
@@ -266,12 +279,34 @@ def save_json_file(filename, data):
         print(f"Error saving {filename}: {e}")
         return False
 
-# Data files
+# Data stores. The filenames double as the dispatch keys above and as the source
+# for the one-time JSON -> SQLite bootstrap in db.init_db().
 USERS_FILE = 'data/users.json'
 ASSIGNMENTS_FILE = 'data/course_assignments.json'
 
-# Ensure data directory exists
+# Ensure data directory exists, then open/initialise the SQLite database. On a
+# brand-new app.db this also imports any existing JSON data exactly once.
 os.makedirs('data', exist_ok=True)
+db.init_db()
+
+
+def _next_assignment_id(assignments):
+    """Next unique assignment id = (highest existing id) + 1.
+
+    Deliberately NOT len(assignments) + 1: assignments get deleted, which leaves
+    gaps in the id sequence, so len()+1 can equal an id that is still live and
+    silently mint a *duplicate* id. Lookups do next((a for a ... if id == x)) and
+    return the first match, so a duplicate makes one assignment shadow another
+    (e.g. a brand-new assignment showing a stale one's completion %)."""
+    return max((a.get('id') or 0 for a in assignments), default=0) + 1
+
+
+def _normalize_dt(value):
+    """Normalize a date/datetime string (including the 'YYYY-MM-DDThh:mm' that HTML
+    <input type="datetime-local"> emits) to canonical 'YYYY-MM-DD HH:MM:SS'.
+    Returns '' if empty or unparseable."""
+    dt = aa.parse_created(str(value or '').strip())
+    return dt.strftime('%Y-%m-%d %H:%M:%S') if dt else ''
 
 def sync_users_from_api():
     """Sync users from API response with local users file (no duplicates)"""
@@ -641,16 +676,26 @@ def create_assignment():
     if not course_name or not user_emails or not deadline:
         return jsonify({'error': 'Course name, users, and deadline are required'}), 400
 
+    # Validity window: completions only count within [effective_from, effective_to].
+    # effective_from defaults to the creation time; effective_to is optional (open).
+    created = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    effective_from = _normalize_dt(data.get('effective_from')) or created
+    effective_to = _normalize_dt(data.get('effective_to'))
+    if effective_to and effective_from > effective_to:
+        return jsonify({'error': 'Effective-from must be on or before effective-to'}), 400
+
     assignments_data = load_json_file(ASSIGNMENTS_FILE, {'assignments': []})
     assignments = assignments_data.get('assignments', [])
 
     # Create new assignment
     assignment = {
-        'id': len(assignments) + 1,
+        'id': _next_assignment_id(assignments),
         'course_name': course_name,
         'user_emails': user_emails,
         'deadline': deadline,
-        'created_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'effective_from': effective_from,
+        'effective_to': effective_to,
+        'created_date': created,
         'created_by': session.get('username')
     }
     assignment['title'] = aa.assignment_title(assignment)
@@ -876,6 +921,18 @@ def update_assignment(assignment_id):
         assignment['user_emails'] = new_user_emails
         assignment['last_modified'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+        # Optionally edit the validity window (only if the field is present in the
+        # payload). effective_from can't be blank — it falls back to created_date;
+        # effective_to may be cleared to '' to mean "open-ended".
+        if 'effective_from' in data:
+            assignment['effective_from'] = (
+                _normalize_dt(data.get('effective_from')) or assignment.get('created_date', ''))
+        if 'effective_to' in data:
+            assignment['effective_to'] = _normalize_dt(data.get('effective_to'))
+        ef, et = assignment.get('effective_from', ''), assignment.get('effective_to', '')
+        if ef and et and ef > et:
+            return jsonify({'error': 'Effective-from must be on or before effective-to'}), 400
+
         # Save first so response is immediate
         if not save_json_file(ASSIGNMENTS_FILE, assignments_data):
             return jsonify({'error': 'Failed to save assignment'}), 500
@@ -925,7 +982,7 @@ def delete_assignment(assignment_id):
         return jsonify({'error': 'Failed to delete assignment'}), 500
 
 @app.route('/api/settings/assignments/bulk-upload', methods=['POST'])
-@admin_required
+@superadmin_required
 @csrf_required
 def bulk_upload_assignment():
     """Bulk upload users for course assignment from Excel file"""
@@ -938,6 +995,13 @@ def bulk_upload_assignment():
 
     if not course_name or not deadline:
         return jsonify({'error': 'Course name and deadline are required'}), 400
+
+    # Validity window (optional): effective_from defaults to creation time below.
+    created = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    effective_from = _normalize_dt(request.form.get('effective_from')) or created
+    effective_to = _normalize_dt(request.form.get('effective_to'))
+    if effective_to and effective_from > effective_to:
+        return jsonify({'error': 'Effective-from must be on or before effective-to'}), 400
     
     file = request.files['file']
     if file.filename == '':
@@ -1006,11 +1070,13 @@ def bulk_upload_assignment():
         assignments = assignments_data.get('assignments', [])
         
         assignment = {
-            'id': len(assignments) + 1,
+            'id': _next_assignment_id(assignments),
             'course_name': course_name,
             'user_emails': valid_emails,
             'deadline': deadline,
-            'created_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'effective_from': effective_from,
+            'effective_to': effective_to,
+            'created_date': created,
             'created_by': session.get('username')
         }
         assignment['title'] = aa.assignment_title(assignment)
@@ -1126,32 +1192,25 @@ def refresh_cache_endpoint():
     }), 202
 
 def save_cache_to_file(data, timestamp):
-    """Save cache data and timestamp to file"""
+    """Persist the API cache to SQLite (see db.py). Name kept for call sites."""
     try:
-        cache_data = {
-            'data': data,
-            'timestamp': timestamp.isoformat(),
-            'cached_at_readable': timestamp.strftime('%Y-%m-%d %H:%M:%S')
-        }
-        with open(CACHE_FILE, 'w', encoding='utf-8') as f:
-            json.dump(cache_data, f, indent=2, ensure_ascii=False)
-        logger.info(f"Cache saved to file: {CACHE_FILE}")
-        return True
+        if db.write_cache(data, timestamp):
+            logger.info("Cache saved to SQLite")
+            return True
+        return False
     except Exception as e:
-        logger.error(f"Error saving cache to file: {e}")
+        logger.error(f"Error saving cache: {e}")
         return False
 
 def load_cache_from_file():
-    """Load cache data and timestamp from file"""
+    """Load the API cache from SQLite (see db.py). Name kept for call sites."""
     try:
-        if os.path.exists(CACHE_FILE):
-            with open(CACHE_FILE, 'r', encoding='utf-8') as f:
-                cache_data = json.load(f)
-                timestamp = datetime.fromisoformat(cache_data['timestamp'])
-                logger.info(f"Cache loaded from file (cached at: {cache_data['cached_at_readable']})")
-                return cache_data['data'], timestamp
+        data, timestamp = db.read_cache()
+        if data and timestamp:
+            logger.info(f"Cache loaded from SQLite (cached at: {timestamp.strftime('%Y-%m-%d %H:%M:%S')})")
+            return data, timestamp
     except Exception as e:
-        logger.error(f"Error loading cache from file: {e}")
+        logger.error(f"Error loading cache: {e}")
     return None, None
 
 def fetch_fresh_data_from_api():
@@ -1448,7 +1507,7 @@ def get_course_details(course_name):
                     'completion_percentage': record.get('Course_Completion_Percentage', '0'),
                     'completion_status': record.get('Course_Completion_Status', ''),
                     'activity_status': record.get('Activity_Status', ''),
-                    'completion_date': record.get('Course_Completion_Date_(YYYY-MM-DD)', '').strip()
+                     'completion_date': record.get('Course_Completion_Date_(YYYY-MM-DD)', '').strip()
                 }
         
         return jsonify({

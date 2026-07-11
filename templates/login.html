@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Course Analytics Dashboard</title>
+    <link rel="preload" href="{{ url_for('static', filename='fonts/Oswald/Oswald-VariableFont_wght.ttf') }}" as="font" type="font/ttf" crossorigin>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.min.css') }}">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/modern.css') }}">
@@ -29,17 +30,39 @@
         }
 
         .login-logo {
-            width: 44px;
-            height: 44px;
-            border-radius: 12px;
+            width: 60px;
+            height: 60px;
+            padding: 14px;
+            border-radius: 16px;
             background: linear-gradient(135deg, #14b8a6 0%, #06b6d4 100%);
             color: #ffffff;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            margin-bottom: .75rem;
-            box-shadow: 0 4px 14px rgba(13, 148, 136, .4);
+            margin-bottom: 1rem;
+            box-shadow: 0 6px 18px rgba(13, 148, 136, .45), inset 0 1px 0 rgba(255, 255, 255, .3);
         }
+        .login-logo svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Footer note under the form: a hairline divider + a small lock icon,
+           set apart from the Sign In button so it reads as a reassurance line
+           rather than crowding the CTA. */
+        .login-note {
+            margin-top: 1.5rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(15, 118, 110, .12);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: .35rem;
+            color: #64748b;
+            font-size: .72rem;
+            letter-spacing: .01em;
+        }
+        .login-note svg { width: 13px; height: 13px; flex-shrink: 0; opacity: .8; }
 
         .error-message {
             background: #fef2f2;
@@ -56,7 +79,7 @@
         <!-- Logo/Icon -->
         <div class="text-center mb-6">
             <div class="login-logo">
-                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z">
                     </path>
@@ -92,17 +115,20 @@
             </button>
         </form>
 
-        <!-- Footer -->
-        <div class="mt-6 text-center">
-            <p class="text-xs text-gray-400">
-                Secure access to Course Analytics Dashboard
-            </p>
+        <!-- Reassurance note -->
+        <div class="login-note">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z">
+                </path>
+            </svg>
+            <span>Secure access to Course Analytics Dashboard</span>
         </div>
     </div>
 
     <!-- Footer -->
     <footer class="app-footer">
-        <p>Safety &amp; Excellence Dashboard (v1.2) © 2025 Nelco</p>
+        <p>Safety &amp; Excellence Dashboard (v1.3) © 2025 Nelco</p>
     </footer>
 </body>
 

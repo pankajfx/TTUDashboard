@@ -20,3 +20,8 @@ data/api_cache.json
 data/course_assignments.json
 data/users.json
 data/course_assignments.backup.*.json
+# SQLite is now the source of truth (see db.py); the JSON files above remain as
+# one-time migration backups. The live DB + its WAL sidecars are runtime state.
+data/app.db
+data/app.db-wal
+data/app.db-shm

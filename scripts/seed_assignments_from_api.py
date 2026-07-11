@@ -52,14 +52,24 @@ except Exception:
     pass
 
 import assignment_analytics as aa
+import db  # SQLite store (the source of truth; replaces the JSON files)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_OUTPUT = os.path.join(ROOT, "data", "course_assignments.json")
 
 
 def load_api_data(input_path):
-    """Return the list of API records from either api_cache.json ({'data':[...]})
-    or a bare list (Response Sample.json)."""
+    """Return the list of API records. With no --input, prefer the live SQLite
+    cache (the source of truth), then fall back to the JSON files (kept as
+    backups). An explicit --input path is always read as a JSON file."""
+    if not input_path:
+        try:
+            data, _ = db.read_cache()
+            if data:
+                print(f"Loaded {len(data)} API records from SQLite cache")
+                return data
+        except Exception as e:
+            print(f"(SQLite cache unavailable: {e}; falling back to files)")
     candidates = [input_path] if input_path else [
         os.path.join(ROOT, "data", "api_cache.json"),
         os.path.join(ROOT, "Response Sample.json"),
@@ -71,7 +81,7 @@ def load_api_data(input_path):
             data = raw.get("data", raw) if isinstance(raw, dict) else raw
             print(f"Loaded {len(data)} API records from {os.path.relpath(path, ROOT)}")
             return data
-    raise FileNotFoundError("No API data found (looked for data/api_cache.json, Response Sample.json)")
+    raise FileNotFoundError("No API data found (looked in SQLite cache, data/api_cache.json, Response Sample.json)")
 
 
 def group_by_course(api_data):
@@ -165,31 +175,28 @@ def main():
         print("\n[dry-run] No files written.")
         return
 
-    # Guard against clobbering real data.
-    existing = []
-    if os.path.exists(args.output):
-        try:
-            with open(args.output, "r", encoding="utf-8") as f:
-                existing = json.load(f).get("assignments", [])
-        except Exception:
-            existing = []
+    # Guard against clobbering real data (now the SQLite store, not the JSON file).
+    db.init_db()
+    existing = db.read_assignments().get("assignments", [])
     if existing and not args.reset:
-        print(f"\nRefusing to overwrite {len(existing)} existing assignment(s) in "
-              f"{os.path.relpath(args.output, ROOT)}. Re-run with --reset to replace.")
+        print(f"\nRefusing to overwrite {len(existing)} existing assignment(s) in the "
+              f"SQLite store. Re-run with --reset to replace.")
         sys.exit(1)
 
-    # Back up whatever is there before writing.
-    if os.path.exists(args.output):
+    # Back up whatever is there before writing (timestamped JSON snapshot).
+    if existing:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup = args.output.replace(".json", f".backup.{ts}.json")
-        with open(args.output, "r", encoding="utf-8") as src, open(backup, "w", encoding="utf-8") as dst:
-            dst.write(src.read())
-        print(f"\nBacked up existing file -> {os.path.relpath(backup, ROOT)}")
+        os.makedirs(os.path.dirname(backup), exist_ok=True)
+        with open(backup, "w", encoding="utf-8") as f:
+            json.dump({"assignments": existing}, f, indent=2, ensure_ascii=False)
+        print(f"\nBacked up existing assignments -> {os.path.relpath(backup, ROOT)}")
 
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
-    with open(args.output, "w", encoding="utf-8") as f:
-        json.dump({"assignments": assignments}, f, indent=2, ensure_ascii=False)
-    print(f"Wrote {len(assignments)} assignments -> {os.path.relpath(args.output, ROOT)}")
+    if db.write_assignments({"assignments": assignments}):
+        print(f"Wrote {len(assignments)} assignments to the SQLite store")
+    else:
+        print("Failed to write assignments to the SQLite store")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

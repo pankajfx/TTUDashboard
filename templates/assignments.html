@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Assignments &amp; FY Analytics</title>
+    <link rel="preload" href="{{ url_for('static', filename='fonts/Oswald/Oswald-VariableFont_wght.ttf') }}" as="font" type="font/ttf" crossorigin>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.min.css') }}">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <script src="{{ url_for('static', filename='js/echarts.min.js') }}"></script>
@@ -20,8 +21,16 @@
         @media (min-width: 768px)  { .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
         @media (min-width: 1280px) { .kpi-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 
-        /* Wider page container so charts and tables get the space. */
-        .page-wrap { max-width: 92rem; }
+        /* FY dropdown + "Get Latest Data" button: force identical height so the
+           pair reads as one control group. box-sizing:border-box means the
+           select's 1px border is absorbed into the 38px rather than adding to
+           it, so both boxes match exactly regardless of border. */
+        .fy-select-control,
+        .fy-refresh-btn {
+            height: 38px;
+            box-sizing: border-box;
+            line-height: 1;
+        }
     </style>
 </head>
 <body>
@@ -31,21 +40,21 @@
                 <div class="flex items-center space-x-2 sm:space-x-4">
                     <div class="header-icon">
                         <svg class="w-5 h-5 sm:w-10 sm:h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
                         </svg>
                     </div>
                     <div>
                         <h1 class="header-title">
-                            <span class="hidden sm:inline">Assignments &amp; Financial-Year Analytics</span>
-                            <span class="sm:hidden">FY / Assignment Analytics</span>
+                            <span class="hidden sm:inline">Safety & Excellence - Course Analytics Dashboard</span>
+                            <span class="sm:hidden">Safety & Excellence Dashboard</span>
                         </h1>
-                        <p class="header-subtitle">True completion measured against everyone assigned, by financial year</p>
+                        <p class="header-subtitle">Track course progress and user engagement</p>
                     </div>
                 </div>
                 <div class="flex items-center space-x-2 sm:space-x-4">
                     <div class="header-badge">
                         <span class="badge-dot"></span>
-                        <span class="badge-text" id="fy-badge">FY —</span>
+                        <span class="badge-text">Live Data</span>
                     </div>
                     {% if role == 'superadmin' %}
                     <a href="{{ url_for('index') }}" class="settings-btn" title="Back to Course Dashboard">
@@ -94,10 +103,10 @@
                         <p class="text-xs text-gray-500" id="cache-age-text"></p>
                     </div>
                     <select id="fy-select" onchange="onFyChange(this.value)"
-                        class="text-sm sm:text-base font-semibold text-gray-800 bg-white border-2 border-indigo-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 shadow-sm cursor-pointer">
+                        class="fy-select-control text-sm font-semibold text-gray-800 bg-white border border-indigo-200 rounded-lg px-3 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 shadow-sm cursor-pointer">
                     </select>
                     <button type="button" id="refresh-btn" onclick="refreshData()"
-                        class="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
+                        class="fy-refresh-btn flex items-center gap-1.5 px-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
                         <svg id="refresh-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                         </svg>
@@ -287,10 +296,21 @@
     </div>
 
     <footer class="app-footer">
-        <p>Assignment analytics &middot; completion measured against assigned users &middot; completions before the assignment date count as Not Started</p>
+        <p>Safety &amp; Excellence Dashboard (v1.3) © 2025 Nelco</p>
     </footer>
 
     <script>
+        // Attach CSRF token to every mutating fetch automatically
+        const _csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+        const _origFetch = window.fetch;
+        window.fetch = function(url, opts = {}) {
+            const method = (opts.method || 'GET').toUpperCase();
+            if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+                opts.headers = Object.assign({ 'X-CSRF-Token': _csrfToken }, opts.headers || {});
+            }
+            return _origFetch(url, opts);
+        };
+
         // ── State ────────────────────────────────────────────────────────────
         const STATUS_COLORS = { completed:'#10b981', in_progress:'#f59e0b', not_started:'#94a3b8' };
         const STATUS_LABELS = { completed:'Completed', in_progress:'In Progress', not_started:'Not Started' };
@@ -363,7 +383,6 @@
                 normalizeBuckets(summary);
                 selectedFy = (summary.selected === 'all') ? 'all' : summary.selected;
                 populateFySelect();
-                document.getElementById('fy-badge').textContent = 'FY ' + summary.selected_label.replace('All Financial Years','ALL');
                 document.getElementById('fy-scope-note').textContent =
                     (summary.selected === 'all') ? 'Analysing assignments across all financial years'
                     : 'Analysing assignments created in FY ' + summary.selected_label;
@@ -610,7 +629,8 @@
                 document.getElementById('assignmentModalTitle').textContent = d.title;
                 document.getElementById('assignmentModalTitle').title = d.title;
                 document.getElementById('assignmentModalSub').textContent =
-                    d.course_name + ' · created ' + shortDate(d.created_date) + ' · FY ' + d.fy_label + ' · deadline ' + shortDate(d.deadline);
+                    d.course_name + ' · created ' + shortDate(d.created_date) + ' · FY ' + d.fy_label + ' · deadline ' + shortDate(d.deadline) +
+                    ' · effective ' + shortDate(d.effective_from) + ' → ' + (d.effective_to ? shortDate(d.effective_to) : 'open');
                 document.getElementById('assignmentModalStats').innerHTML =
                     statChip('Enrolled', d.total, '#0d9488') + statChip('Completed', d.completed, STATUS_COLORS.completed) +
                     statChip('In Progress', d.in_progress, STATUS_COLORS.in_progress) + statChip('Not Started', d.not_started, STATUS_COLORS.not_started) +
@@ -626,7 +646,7 @@
                         '<td class="px-3 py-2 text-sm text-gray-600">'+h(u.email)+'</td>'+
                         '<td class="px-3 py-2">'+statusBadge(u.status)+'</td>'+
                         '<td class="px-3 py-2 text-sm text-gray-600">'+u.percentage+'%</td>'+
-                        '<td class="px-3 py-2 text-sm text-gray-500">'+(u.stale?('<span class="text-gray-400">— (done '+shortDate(u.completion_date)+', before assigned)</span>'):(u.completion_date?shortDate(u.completion_date):'—'))+'</td>'+
+                        '<td class="px-3 py-2 text-sm text-gray-500">'+(u.stale?('<span class="text-gray-400">— (done '+shortDate(u.completion_date)+', outside valid window)</span>'):(u.completion_date?shortDate(u.completion_date):'—'))+'</td>'+
                         '</tr>';
                 });
                 document.getElementById('assignmentModalBody').innerHTML = html;
@@ -653,7 +673,7 @@
                         '<td class="px-3 py-2 text-sm text-gray-600">'+shortDate(a.created_date)+'</td>'+
                         '<td class="px-3 py-2">'+statusBadge(a.status)+'</td>'+
                         '<td class="px-3 py-2 text-sm text-gray-600">'+a.percentage+'%</td>'+
-                        '<td class="px-3 py-2 text-sm text-gray-500">'+(a.stale?('<span class="text-gray-400">— (done '+shortDate(a.completion_date)+', before assigned)</span>'):(a.completion_date?shortDate(a.completion_date):'—'))+'</td>'+
+                        '<td class="px-3 py-2 text-sm text-gray-500">'+(a.stale?('<span class="text-gray-400">— (done '+shortDate(a.completion_date)+', outside valid window)</span>'):(a.completion_date?shortDate(a.completion_date):'—'))+'</td>'+
                         '</tr>';
                 });
                 if(!d.assignments.length) html = '<tr><td colspan="6" class="px-3 py-4 text-center text-gray-400">No assignments in scope</td></tr>';

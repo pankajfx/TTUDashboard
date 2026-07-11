@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Settings - Course Analytics Dashboard</title>
+    <link rel="preload" href="{{ url_for('static', filename='fonts/Oswald/Oswald-VariableFont_wght.ttf') }}" as="font" type="font/ttf" crossorigin>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.min.css') }}">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/modern.css') }}">
@@ -15,7 +16,7 @@
         .tab-btn { padding: .5rem .9rem; border-bottom: 3px solid transparent; }
 
         .user-item, .assignment-item { transition: background .15s ease; }
-        .user-item:hover, .assignment-item:hover { background: #f8fafc; transform: none; }
+        .user-item:hover, .assignment-item:hover { background: #7ee8d5; transform: none; }
 
         /* Compact headings */
         h1 { font-size: 1.15rem !important; }
@@ -103,8 +104,12 @@
                                 class="input-field w-full px-4 py-2 rounded-lg text-sm">
                             <p class="text-xs text-gray-500 mt-1">Upload an Excel file with email addresses in the first column</p>
                         </div>
-                        <button type="submit" class="btn-primary w-full py-2 px-4 text-white font-semibold rounded-lg">
-                            📤 Upload Users
+                        <button type="submit" id="uploadUsersBtn"
+                            class="btn-primary w-full py-2 px-4 text-white font-semibold rounded-lg flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed">
+                            <svg id="uploadUsersIcon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                            </svg>
+                            <span id="uploadUsersText">Upload Users</span>
                         </button>
                     </form>
                 </div>
@@ -113,9 +118,12 @@
                 <div class="card p-6">
                     <div class="flex justify-between items-center mb-4">
                         <h2 class="text-xl font-bold text-gray-900">Registered Users</h2>
-                        <button onclick="syncUsers()"
-                            class="px-3 py-1 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition">
-                            🔄 Sync from API
+                        <button onclick="syncUsers()" id="syncUsersBtn"
+                            class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                            <svg id="syncUsersIcon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                            <span id="syncUsersText">Sync from API</span>
                         </button>
                     </div>
                     <div id="syncMessage" class="mb-2 text-sm"></div>
@@ -195,6 +203,16 @@
                             </div>
                         </div>
                         <div style="position:relative;overflow:hidden;width:100%;">
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">Effective From</label>
+                            <input type="datetime-local" id="effectiveFrom" class="input-field px-4 py-2 rounded-lg" style="-webkit-appearance:none;appearance:none;display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:42px;line-height:1.5;">
+                            <p class="text-xs text-gray-500 mt-1">When this assignment starts counting. Leave blank to start now; backdate it to credit older completions.</p>
+                        </div>
+                        <div style="position:relative;overflow:hidden;width:100%;">
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">Effective To <span class="text-gray-400 font-normal">(optional)</span></label>
+                            <input type="datetime-local" id="effectiveTo" class="input-field px-4 py-2 rounded-lg" style="-webkit-appearance:none;appearance:none;display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:42px;line-height:1.5;">
+                            <p class="text-xs text-gray-500 mt-1">Completions after this won't count. Leave blank for no end.</p>
+                        </div>
+                        <div style="position:relative;overflow:hidden;width:100%;">
                             <label class="block text-sm font-semibold text-gray-700 mb-2">Deadline</label>
                             <input type="date" id="deadline" required class="input-field px-4 py-2 rounded-lg" style="-webkit-appearance:none;appearance:none;display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:42px;line-height:1.5;">
                         </div>
@@ -203,38 +221,58 @@
                         </button>
                     </form>
                     
-                    <!-- OR Divider -->
-                    <div class="relative my-6">
-                        <div class="absolute inset-0 flex items-center">
-                            <div class="w-full border-t border-gray-300"></div>
+                    <!-- Bulk-upload assignment path: superadmin-only for a simpler page for
+                         everyone else (manual selection above covers their flow). Form +
+                         listener are untouched — widen the role check to restore for others. -->
+                    {% if role == 'superadmin' %}
+                    <div id="bulkAssignSection">
+                        <!-- OR Divider -->
+                        <div class="relative my-6">
+                            <div class="absolute inset-0 flex items-center">
+                                <div class="w-full border-t border-gray-300"></div>
+                            </div>
+                            <div class="relative flex justify-center text-sm">
+                                <span class="px-4 bg-white text-gray-500 font-medium">OR</span>
+                            </div>
                         </div>
-                        <div class="relative flex justify-center text-sm">
-                            <span class="px-4 bg-white text-gray-500 font-medium">OR</span>
-                        </div>
+
+                        <!-- Bulk Upload -->
+                        <form id="bulkUploadAssignmentForm" class="space-y-4" style="overflow:hidden;">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Select Course</label>
+                                <select id="bulkCourseSelect" required class="input-field w-full px-4 py-2 rounded-lg">
+                                    <option value="">Loading courses...</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Upload Excel File</label>
+                                <input type="file" id="assignmentFileInput" accept=".xlsx,.xls"
+                                    class="input-field w-full px-4 py-2 rounded-lg text-sm">
+                                <p class="text-xs text-gray-500 mt-1">Upload an Excel file with email addresses in the first column</p>
+                            </div>
+                            <div style="position:relative;overflow:hidden;width:100%;">
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Effective From</label>
+                                <input type="datetime-local" id="bulkEffectiveFrom" class="input-field px-4 py-2 rounded-lg" style="-webkit-appearance:none;appearance:none;display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:42px;line-height:1.5;">
+                                <p class="text-xs text-gray-500 mt-1">When this assignment starts counting. Leave blank to start now; backdate it to credit older completions.</p>
+                            </div>
+                            <div style="position:relative;overflow:hidden;width:100%;">
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Effective To <span class="text-gray-400 font-normal">(optional)</span></label>
+                                <input type="datetime-local" id="bulkEffectiveTo" class="input-field px-4 py-2 rounded-lg" style="-webkit-appearance:none;appearance:none;display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:42px;line-height:1.5;">
+                                <p class="text-xs text-gray-500 mt-1">Completions after this won't count. Leave blank for no end.</p>
+                            </div>
+                            <div style="position:relative;overflow:hidden;width:100%;">
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Deadline</label>
+                                <input type="date" id="bulkDeadline" required class="input-field px-4 py-2 rounded-lg" style="-webkit-appearance:none;appearance:none;display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:42px;line-height:1.5;">
+                            </div>
+                            <button type="submit" class="btn-primary w-full py-2 px-4 text-white font-semibold rounded-lg flex items-center justify-center gap-1.5">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                                </svg>
+                                <span>Upload &amp; Assign</span>
+                            </button>
+                        </form>
                     </div>
-                    
-                    <!-- Bulk Upload -->
-                    <form id="bulkUploadAssignmentForm" class="space-y-4" style="overflow:hidden;">
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">Select Course</label>
-                            <select id="bulkCourseSelect" required class="input-field w-full px-4 py-2 rounded-lg">
-                                <option value="">Loading courses...</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">Upload Excel File</label>
-                            <input type="file" id="assignmentFileInput" accept=".xlsx,.xls" 
-                                class="input-field w-full px-4 py-2 rounded-lg text-sm">
-                            <p class="text-xs text-gray-500 mt-1">Upload an Excel file with email addresses in the first column</p>
-                        </div>
-                        <div style="position:relative;overflow:hidden;width:100%;">
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">Deadline</label>
-                            <input type="date" id="bulkDeadline" required class="input-field px-4 py-2 rounded-lg" style="-webkit-appearance:none;appearance:none;display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:42px;line-height:1.5;">
-                        </div>
-                        <button type="submit" class="btn-primary w-full py-2 px-4 text-white font-semibold rounded-lg">
-                            📤 Upload & Assign
-                        </button>
-                    </form>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -313,6 +351,17 @@
                 <div class="mb-3 p-3 bg-gray-50 rounded-lg">
                     <p class="text-xs sm:text-sm text-gray-600"><strong>Course:</strong> <span id="editCourseName">Loading...</span></p>
                     <p class="text-xs sm:text-sm text-gray-600 mt-1"><strong>Deadline:</strong> <span id="editDeadline">Loading...</span></p>
+                </div>
+
+                <div class="mb-3">
+                    <label class="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">Effective From</label>
+                    <input type="datetime-local" id="editEffectiveFrom" class="input-field w-full px-3 py-2 text-sm rounded-lg" />
+                    <p class="text-xs text-gray-500 mt-1">Only completions on/after this count toward the assignment. Backdate to credit older completions.</p>
+                </div>
+                <div class="mb-3">
+                    <label class="block text-xs sm:text-sm font-semibold text-gray-700 mb-1.5">Effective To <span class="text-gray-400 font-normal">(optional)</span></label>
+                    <input type="datetime-local" id="editEffectiveTo" class="input-field w-full px-3 py-2 text-sm rounded-lg" />
+                    <p class="text-xs text-gray-500 mt-1">Completions after this won't count. Leave blank for no end.</p>
                 </div>
 
                 <div class="mb-3">
@@ -533,6 +582,19 @@
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#39;');
+        }
+
+        // Format an assignment's validity window compactly, e.g.
+        //   "11 Jul 2026 → open"   or   "01 Feb 2026 → 28 Feb 2026"
+        // Only completions inside this window count toward the assignment.
+        function fmtWindow(from, to, created) {
+            const fmt = (s) => {
+                if (!s) return null;
+                const dt = new Date(String(s).replace(' ', 'T'));
+                return isNaN(dt.getTime()) ? String(s)
+                    : dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+            };
+            return (fmt(from) || fmt(created) || '—') + ' → ' + (fmt(to) || 'open');
         }
 
         // Attach CSRF token to every mutating fetch automatically
@@ -811,22 +873,27 @@
 
         // Sync users from API
         async function syncUsers() {
-            const btn = event.target;
+            const btn = document.getElementById('syncUsersBtn');
+            const icon = document.getElementById('syncUsersIcon');
+            const label = document.getElementById('syncUsersText');
             btn.disabled = true;
-            btn.textContent = '⏳ Syncing...';
+            icon.classList.add('refresh-spinning');
+            label.textContent = 'Syncing...';
 
             try {
                 await loadUsers();
-                btn.textContent = '✓ Synced!';
+                icon.classList.remove('refresh-spinning');
+                label.textContent = 'Synced!';
                 setTimeout(() => {
                     btn.disabled = false;
-                    btn.textContent = '🔄 Sync from API';
+                    label.textContent = 'Sync from API';
                 }, 2000);
             } catch (error) {
-                btn.textContent = '✗ Error';
+                icon.classList.remove('refresh-spinning');
+                label.textContent = 'Error';
                 setTimeout(() => {
                     btn.disabled = false;
-                    btn.textContent = '🔄 Sync from API';
+                    label.textContent = 'Sync from API';
                 }, 2000);
             }
         }
@@ -1186,8 +1253,16 @@
                 return;
             }
 
+            const btn = document.getElementById('uploadUsersBtn');
+            const icon = document.getElementById('uploadUsersIcon');
+            const label = document.getElementById('uploadUsersText');
+
             const formData = new FormData();
             formData.append('file', file);
+
+            btn.disabled = true;
+            icon.classList.add('refresh-spinning');
+            label.textContent = 'Uploading...';
 
             try {
                 const response = await fetch('/api/settings/users/bulk-upload', {
@@ -1204,14 +1279,14 @@
                     if (data.invalid_count > 0) {
                         message += `, ${data.invalid_count} invalid email(s)`;
                     }
-                    
+
                     showNotification('Upload Complete', message, 'success');
-                    
+
                     // Show details if there are issues
                     if (data.invalid_emails && data.invalid_emails.length > 0) {
                         console.log('Invalid emails:', data.invalid_emails);
                     }
-                    
+
                     fileInput.value = '';
                     loadUsers();
                 } else {
@@ -1219,6 +1294,10 @@
                 }
             } catch (error) {
                 showNotification('Error', 'Error uploading file: ' + error.message, 'error');
+            } finally {
+                btn.disabled = false;
+                icon.classList.remove('refresh-spinning');
+                label.textContent = 'Upload Users';
             }
         });
 
@@ -1228,10 +1307,17 @@
 
             const courseName = document.getElementById('courseSelect').value;
             const deadline = document.getElementById('deadline').value;
+            const effectiveFrom = document.getElementById('effectiveFrom').value;
+            const effectiveTo = document.getElementById('effectiveTo').value;
             const selectedUsers = Array.from(selectedAssignmentEmails);
 
             if (!courseName || !deadline || selectedUsers.length === 0) {
                 showNotification('Validation Error', 'Please fill all fields and select at least one user', 'warning');
+                return;
+            }
+
+            if (effectiveFrom && effectiveTo && effectiveFrom > effectiveTo) {
+                showNotification('Validation Error', 'Effective From must be on or before Effective To', 'warning');
                 return;
             }
 
@@ -1253,6 +1339,8 @@
                         course_name: courseName,
                         user_emails: selectedUsers,
                         deadline: deadline,
+                        effective_from: effectiveFrom,
+                        effective_to: effectiveTo,
                         notify_email: notifyEmail
                     })
                 });
@@ -1290,11 +1378,18 @@
 
             const courseName = document.getElementById('bulkCourseSelect').value;
             const deadline = document.getElementById('bulkDeadline').value;
+            const effectiveFrom = document.getElementById('bulkEffectiveFrom').value;
+            const effectiveTo = document.getElementById('bulkEffectiveTo').value;
             const fileInput = document.getElementById('assignmentFileInput');
             const file = fileInput.files[0];
 
             if (!courseName || !deadline || !file) {
                 showNotification('Validation Error', 'Please fill all fields and select a file', 'warning');
+                return;
+            }
+
+            if (effectiveFrom && effectiveTo && effectiveFrom > effectiveTo) {
+                showNotification('Validation Error', 'Effective From must be on or before Effective To', 'warning');
                 return;
             }
 
@@ -1311,6 +1406,8 @@
             formData.append('file', file);
             formData.append('course_name', courseName);
             formData.append('deadline', deadline);
+            formData.append('effective_from', effectiveFrom);
+            formData.append('effective_to', effectiveTo);
             formData.append('notify_email', notifyEmail ? 'true' : 'false');
 
             showAssignmentLoader('Processing file and creating assignment...');
@@ -1545,6 +1642,9 @@
                         <strong>Deadline:</strong> ${h(assignment.deadline)}
                     </p>
                     <p class="text-xs text-gray-600 mb-1">
+                        <strong>Effective:</strong> ${h(fmtWindow(assignment.effective_from, assignment.effective_to, assignment.created_date))}
+                    </p>
+                    <p class="text-xs text-gray-600 mb-1">
                         <strong>Assigned to:</strong> ${h(assignment.user_emails.length)} user(s)
                     </p>
                     ${assignment.stats ? `
@@ -1700,7 +1800,7 @@
                 const progress = isStale ? 0 : parseFloat(user.completion_percentage || 0);
                 const progressColor = progress >= 75 ? 'bg-green-500' : progress >= 50 ? 'bg-yellow-500' : 'bg-red-500';
                 const dateCell = isStale
-                    ? '<span class="text-gray-400">—</span> <span class="text-gray-400" style="font-size:11px;">(done ' + h(user.completion_date) + ', before assigned)</span>'
+                    ? '<span class="text-gray-400">—</span> <span class="text-gray-400" style="font-size:11px;">(done ' + h(user.completion_date) + ', outside valid window)</span>'
                     : (user.completion_date ? h(user.completion_date) : '-');
 
                 return `
@@ -1779,6 +1879,13 @@
                 // Set modal data
                 document.getElementById('editCourseName').textContent = assignmentData.assignment.course_name;
                 document.getElementById('editDeadline').textContent = assignmentData.assignment.deadline;
+
+                // Populate the validity window (datetime-local wants 'YYYY-MM-DDTHH:MM')
+                const toLocalInput = (s) => s ? String(s).replace(' ', 'T').slice(0, 16) : '';
+                document.getElementById('editEffectiveFrom').value =
+                    toLocalInput(assignmentData.assignment.effective_from || assignmentData.assignment.created_date);
+                document.getElementById('editEffectiveTo').value =
+                    toLocalInput(assignmentData.assignment.effective_to);
 
                 // Render users with current selection
                 renderEditUsers(assignmentData.assignment.user_emails);
@@ -1868,9 +1975,16 @@
 
         async function saveAssignmentEdit() {
             const selectedUsers = Array.from(document.querySelectorAll('.edit-user-checkbox:checked')).map(cb => cb.value);
+            const effectiveFrom = document.getElementById('editEffectiveFrom').value;
+            const effectiveTo = document.getElementById('editEffectiveTo').value;
 
             if (selectedUsers.length === 0) {
                 showNotification('Validation Error', 'Please select at least one user', 'warning');
+                return;
+            }
+
+            if (effectiveFrom && effectiveTo && effectiveFrom > effectiveTo) {
+                showNotification('Validation Error', 'Effective From must be on or before Effective To', 'warning');
                 return;
             }
 
@@ -1888,7 +2002,7 @@
                 const response = await fetch(`/api/settings/assignments/${currentEditAssignmentId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ user_emails: selectedUsers, notify_email: notifyEmail })
+                    body: JSON.stringify({ user_emails: selectedUsers, effective_from: effectiveFrom, effective_to: effectiveTo, notify_email: notifyEmail })
                 });
 
                 const data = await response.json();
@@ -1968,7 +2082,7 @@
 
     <!-- Footer -->
     <footer class="app-footer">
-        <p>Safety &amp; Excellence Dashboard (v1.2) © 2025 Nelco</p>
+        <p>Safety &amp; Excellence Dashboard (v1.3) © 2025 Nelco</p>
     </footer>
 </body>
 

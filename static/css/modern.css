@@ -28,10 +28,27 @@
     --shadow-lg: 0 16px 40px rgba(8, 60, 80, .3);
 }
 
+/* ---------- Brand typeface (Oswald, variable weight 200-700) ----------
+   Single variable-font file covers every weight the app uses (400/500/
+   600/700), so there's only one font request to preload — no staggered
+   pop-in as separate weight files arrive. font-display:block pairs with
+   the <link rel="preload"> in each template's <head>: text stays
+   invisible for a beat (usually none, since the file is preloaded)
+   rather than flashing in the fallback font and reflowing when Oswald
+   arrives. */
+@font-face {
+    font-family: 'Oswald';
+    src: url('../fonts/Oswald/Oswald-VariableFont_wght.ttf') format('truetype-variations'),
+         url('../fonts/Oswald/Oswald-VariableFont_wght.ttf') format('truetype');
+    font-weight: 200 700;
+    font-style: normal;
+    font-display: block;
+}
+
 * { box-sizing: border-box; }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    font-family: 'Oswald', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     background: linear-gradient(135deg, #0f766e 0%, #14b8a6 25%, #06b6d4 50%, #22d3ee 75%, #e879f9 100%);
     background-size: 400% 400%;
     background-attachment: fixed;
@@ -52,6 +69,12 @@ body {
 
 svg { display: block; flex-shrink: 0; }
 
+/* ---------- Page container ----------
+   One shared max-width for header bars and page content alike, so the two
+   always line up without per-page overrides — a page just uses .page-wrap
+   on both its <header> inner div and its <main>, nothing else to sync. */
+.page-wrap { max-width: 92rem; }
+
 /* ---------- App footer (slim, fixed, gradient) ---------- */
 .app-footer {
     position: fixed;
@@ -59,7 +82,7 @@ svg { display: block; flex-shrink: 0; }
     bottom: 0;
     bottom: env(safe-area-inset-bottom, 0);
     z-index: 40;
-    background: linear-gradient(90deg, #0d9488 0%, #0891b2 55%, #c026d3 100%);
+    background: linear-gradient(90deg, #0d9488 0%, #0891b2 55%, #059669 100%);
     border-top: 1px solid rgba(255, 255, 255, .25);
     text-align: center;
     padding: .32rem .75rem;
@@ -72,7 +95,7 @@ svg { display: block; flex-shrink: 0; }
 
 /* ---------- Header (gradient app bar) ---------- */
 .header-gradient {
-    background: linear-gradient(120deg, rgba(15, 118, 110, .97) 0%, rgba(13, 148, 136, .95) 35%, rgba(8, 145, 178, .95) 70%, rgba(192, 38, 211, .82) 100%);
+    background: linear-gradient(120deg, rgba(15, 118, 110, .97) 0%, rgba(13, 148, 136, .95) 35%, rgba(8, 145, 178, .95) 70%, rgba(5, 150, 105, .9) 100%);
     -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
     border-bottom: 1px solid rgba(255, 255, 255, .25);
@@ -315,6 +338,10 @@ input[type="date"].input-field {
     border-color: var(--brand) !important;
     box-shadow: 0 0 0 3px rgba(20, 184, 166, .2) !important;
     outline: none;
+}
+#fy-select{
+    background: #979292;
+    color: white;
 }
 
 /* ---------- Tabs ---------- */
