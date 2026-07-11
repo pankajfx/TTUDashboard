@@ -383,7 +383,14 @@ def build_summary(assignments, api_data, selected="current", now: datetime = Non
         ),
     }
 
+    # Always expose the current FY as a selectable option — even on a clean
+    # instance with zero assignments — so the dropdown is never blank and the
+    # page opens on the current FY (0 assignments) by default.
     fys = available_financial_years(assignments)
+    cur = current_fy_start_year(now)
+    if not any(f["start_year"] == cur for f in fys):
+        fys.append({"start_year": cur, "label": fy_label(cur), "count": 0})
+        fys.sort(key=lambda f: f["start_year"], reverse=True)
     return {
         "financial_years": fys,
         "current_fy": current_fy_start_year(now),

@@ -1060,9 +1060,10 @@
                 const courseOptions = '<option value="">Select a course...</option>' +
                     courses.map(course => `<option value="${h(course)}">${h(course)}</option>`).join('');
                 
-                // Update both course selects
+                // Update both course selects (bulk one only exists for superadmin)
                 document.getElementById('courseSelect').innerHTML = courseOptions;
-                document.getElementById('bulkCourseSelect').innerHTML = courseOptions;
+                const bulkCourseSelect = document.getElementById('bulkCourseSelect');
+                if (bulkCourseSelect) bulkCourseSelect.innerHTML = courseOptions;
             } catch (error) {
                 console.error('Error loading courses:', error);
             }
@@ -1372,8 +1373,14 @@
             }
         });
 
-        // Bulk upload assignment
-        document.getElementById('bulkUploadAssignmentForm').addEventListener('submit', async (e) => {
+        // Bulk upload assignment.
+        // This form is only rendered for the superadmin role (the template gates the
+        // section with a role check). For a plain admin the element is absent, so guard
+        // the listener -- otherwise getElementById(...).addEventListener throws and halts
+        // the rest of this script (breaking loadUsers/loadAssignments and the search
+        // inputs registered at the bottom).
+        const bulkUploadAssignmentForm = document.getElementById('bulkUploadAssignmentForm');
+        if (bulkUploadAssignmentForm) bulkUploadAssignmentForm.addEventListener('submit', async (e) => {
             e.preventDefault();
 
             const courseName = document.getElementById('bulkCourseSelect').value;

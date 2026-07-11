@@ -44,47 +44,54 @@ A Flask-based internal dashboard for tracking **Tata Tomorrow University (TTU)**
 | Layer | Technology |
 |-------|-----------|
 | Backend | Python 3.11 / Flask |
-| Frontend | Vanilla JS + Tailwind CSS (compiled static build) + ECharts (local) |
-| Data store | JSON flat files (`data/`) |
+| Frontend | Vanilla JS + hand-written `static/css/modern.css` + local Oswald font + ECharts (local) |
+| Data store | **SQLite** (`data/app.db`, stdlib `sqlite3`) — source of truth via `db.py`. JSON files are migration seed/backup only |
 | Email | smtplib → Office 365 SMTP (TLS, port 587) |
 | Excel parsing | openpyxl |
 | Password hashing | Werkzeug PBKDF2-SHA256 |
 | Secrets | `python-dotenv` → `.env` (gitignored) |
-| CSS build | Tailwind CLI v3.4.17 (Node/npx) → static `tailwind.min.css` |
 | Concurrency | Python `threading` + `concurrent.futures.ThreadPoolExecutor` |
+
+> **Storage note:** As of v1.3 the app reads/writes users, course assignments, and the API cache through `db.py` (SQLite at `data/app.db`). `db.init_db()` runs at import time in `app.py`, creating the DB + tables on first boot and, only when the DB file is brand-new, bootstrapping it once from the legacy `data/*.json` files. After that the JSON files are ignored. The legacy Tailwind build (`tailwind.min.css`, Node tooling) is no longer used — styling is the committed `static/css/modern.css`.
 
 ### File Structure
 
 ```
 .
-├── app.py                          # Flask app — all routes & business logic
+├── app.py                          # Flask app — all routes & business logic; calls db.init_db() at import
+├── db.py                           # SQLite data-access layer (source of truth) — users, assignments, cache
+├── assignment_analytics.py         # Assignment progress/analytics helpers
 ├── email_service.py                # SMTP email module (templates + sending)
 ├── requirements.txt                # Python dependencies
 ├── .env                            # Secrets (gitignored) — keys, passwords, API URL
-├── .env.example                    # Sanitised template of required env vars
-├── package.json                    # Tailwind build scripts + pinned devDependency
-├── tailwind.config.js              # Tailwind content scan config (templates/**)
-├── deploy_setup.ps1                # PowerShell deployment helper
-├── deploy_simple.bat               # One-click Windows batch launcher
-├── Response Sample.json            # Local data fixture (USE_LOCAL_DATA=True)
+├── .env.example                    # Sanitised template of required env vars (incl. SUPERADMIN_PASSWORD)
+├── deploy_setup.ps1                # PowerShell deployment helper (venv + waitress + icacls)
+├── deploy_simple.bat               # One-click Windows batch launcher (edit hardcoded paths!)
+├── Response Sample.json            # Local data fixture (USE_LOCAL_DATA=true)
+├── scripts/
+│   └── seed_assignments_from_api.py  # Optional: pre-seed assignments from API on an empty setup
 ├── data/
-│   ├── api_cache.json              # Persistent API response cache (auto-created)
-│   ├── users.json                  # User registry
-│   └── course_assignments.json     # Course assignment records
+│   ├── app.db                      # ★ SQLite DB — SOURCE OF TRUTH (auto-created; carries all live data)
+│   ├── api_cache.json              # Legacy migration seed/backup only (ignored once app.db exists)
+│   ├── users.json                  # Legacy migration seed/backup only
+│   └── course_assignments.json     # Legacy migration seed/backup only
 ├── logs/
 │   └── app.log                     # Rotating audit/app log (auto-created, gitignored)
 ├── templates/
 │   ├── index.html                  # Main dashboard (SPA-style)
 │   ├── login.html                  # Login page
-│   └── settings.html               # Admin settings page
+│   ├── settings.html               # Admin settings page
+│   └── assignments.html            # Assignments management page
 ├── static/
-│   ├── css/input.css               # Tailwind directives (build source)
-│   ├── css/tailwind.min.css        # Compiled static CSS (build output, committed)
+│   ├── css/modern.css              # ★ Active hand-written stylesheet (committed)
+│   ├── css/input.css               # Legacy Tailwind source (unused)
+│   ├── css/tailwind.min.css        # Legacy compiled Tailwind (unused, safe to ignore)
+│   ├── fonts/Oswald/               # Local Oswald font (self-hosted, satisfies CSP)
 │   └── js/echarts.min.js
 └── Project_Structure.md            # This file
 ```
 
-> **Build artifact note:** `static/css/tailwind.min.css` is generated from `input.css` by the Tailwind CLI and is committed so deployment needs only Python. `node_modules/` is gitignored; Node is required only when rebuilding CSS (see [§11](#11-deployment)).
+> **★ marks what production actually uses.** `data/app.db` is the live store; the `data/*.json` files are only the one-time migration seed (kept as backups). `static/css/modern.css` is the active stylesheet; `input.css`/`tailwind.min.css` and the Node build tooling (`package.json`, `tailwind.config.js`, `node_modules/`) are legacy and not needed to deploy. Deployment needs only Python 3.11 + the `requirements.txt` deps + `waitress`.
 
 ---
 
@@ -613,28 +620,66 @@ After manual refresh completes:
 
 ## 11. Deployment
 
+### Fresh Server Deployment (stepwise)
+
+The app needs **only Python 3.11** — no database server, no Node. SQLite is stdlib; CSS/fonts are committed.
+
+#### Do I need to upload the `.json` files?
+
+**No.** SQLite (`data/app.db`) is the source of truth. Pick **one** of:
+
+| Goal | Copy into `data/` |
+|------|-------------------|
+| **Carry over existing users + assignments + cache** (recommended) | **`app.db` only.** The app uses it as-is. |
+| **Start empty, seed from current JSON** | The three JSONs (`users.json`, `course_assignments.json`, `api_cache.json`) and **no** `app.db`. First boot bootstraps them into a new `app.db`, then ignores them. |
+
+> ⚠️ If `app.db` exists, the JSON files are **ignored entirely** (no merge). Never copy `app.db-wal` / `app.db-shm` (transient SQLite sidecars) or `*.backup*.json`.
+
+#### Step 1 — Install Python 3.11 on the server. (Nothing else.)
+
+#### Step 2 — Copy the app to the server
+**Required:** `app.py`, `db.py`, `email_service.py`, `assignment_analytics.py`, `requirements.txt`, `scripts/`, `templates/`, `static/` (css/modern.css + fonts/Oswald/** + js/echarts.min.js), and `Response Sample.json` (only if you might use `USE_LOCAL_DATA=true`).
+**Data:** exactly one option from the table above.
+**Do NOT copy:** `.env` (rebuild it), `venv/`, `node_modules/`, `__pycache__/`, `logs/`, `*.backup*.json`, `app.db-wal`, `app.db-shm`, legacy `tailwind.min.css`.
+
+#### Step 3 — Create `.env` on the server (the main thing you change)
+```bash
+cp .env.example .env    # then fill in real values
+```
+Required (app `KeyError`s and refuses to boot without them): `SECRET_KEY`, **`SUPERADMIN_PASSWORD`** (new), `ADMIN_PASSWORD`, `USER_PASSWORD`, `TCS_ION_API_URL`. Set `USE_LOCAL_DATA=false` and (behind TLS) `HTTPS_ONLY=true`. See [§12](#12-configuration-reference) for the full list.
+
+#### Step 4 — Install deps and run
+```powershell
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+pip install waitress
+# Production (Waitress, port 8888):
+python -c "from waitress import serve; from app import app; serve(app, host='0.0.0.0', port=8888, threads=4)"
+```
+No migration command is needed — `app.py` calls `db.init_db()` at import, which creates `data/app.db` + tables (or uses the one you copied) automatically.
+
+#### Step 5 — Optional hardening / seeding
+- Run `deploy_setup.ps1` **as Administrator** to apply `icacls` ACLs on `data/` and `.env` (SEC-22).
+- `scripts/seed_assignments_from_api.py` pre-populates assignments from the API on an empty setup (optional).
+
+#### Step 6 — Verify
+Open `http://<server>:8888/login`, log in, and confirm the dashboard, settings, and assignments pages render **styled** (proves `modern.css` + Oswald fonts copied). Confirm `data/app.db` and `logs/app.log` exist.
+
 ### Quick Start (Development)
 
 ```bash
 pip install -r requirements.txt      # includes python-dotenv
-cp .env.example .env                 # then fill in real values
+cp .env.example .env                 # then fill in real values (incl. SUPERADMIN_PASSWORD)
 python app.py
 # → http://localhost:5000
 ```
 
-The app **will not start** if required env vars are missing — `SECRET_KEY`, `ADMIN_PASSWORD`, `USER_PASSWORD`, and `TCS_ION_API_URL` are read with `os.environ[...]` and raise `KeyError` if absent.
+The app **will not start** if required env vars are missing — `SECRET_KEY`, `SUPERADMIN_PASSWORD`, `ADMIN_PASSWORD`, `USER_PASSWORD`, and `TCS_ION_API_URL` are read with `os.environ[...]` and raise `KeyError` if absent. `python app.py` binds port **5000** (dev); the Waitress production launchers use **8888**.
 
-### Rebuilding Tailwind CSS
+### Styling (no build step)
 
-The compiled `static/css/tailwind.min.css` is committed, so normal deployment needs **no Node**. Rebuild only when you add/remove Tailwind utility classes in a template:
-
-```bash
-npm install            # one-time, installs pinned tailwindcss 3.4.17
-npm run build:css      # regenerates static/css/tailwind.min.css (minified)
-npm run watch:css      # optional: auto-rebuild while editing templates
-```
-
-`tailwind.config.js` scans `templates/**/*.html` (including class names inside inline `<script>` template literals), so all dynamically-applied classes are captured.
+Styling is the committed, hand-written `static/css/modern.css` — there is **no CSS build step** and **no Node dependency** in deployment. The old Tailwind tooling (`package.json`, `tailwind.config.js`, `input.css`, `tailwind.min.css`, `node_modules/`) is legacy and unused; ignore it when deploying.
 
 ### Windows (Production)
 
@@ -649,14 +694,16 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 .\deploy_setup.ps1
 ```
 
+> **Both `deploy_simple.bat` and `deploy_setup.ps1` have hardcoded paths** (`PYTHON_PATH`, project dir `C:\Users\8527\PYTHON\ttu_dash`). **Edit those to match the new server** before running. Both launch Waitress on **port 8888** with `threads=4`, binding `0.0.0.0`.
+
 **Manual steps:**
 ```batch
-set PYTHON_PATH=C:\Users\8527\PYTHON\python_3_11_4\python.exe
+set PYTHON_PATH=C:\path\to\python_3_11\python.exe
 "%PYTHON_PATH%" -m venv venv
 venv\Scripts\activate.bat
 pip install -r requirements.txt
 pip install waitress
-python app.py
+"%PYTHON_PATH%" -c "from waitress import serve; from app import app; serve(app, host='0.0.0.0', port=8888, threads=4)"
 ```
 
 ### Production Checklist
@@ -690,6 +737,7 @@ Loaded by `python-dotenv` at startup in both `app.py` and `email_service.py`. A 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `SECRET_KEY` | **yes** | Flask session signing key. Generate: `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `SUPERADMIN_PASSWORD` | **yes** | Plaintext superadmin password (hashed in memory at startup) |
 | `ADMIN_PASSWORD` | **yes** | Plaintext admin password (hashed in memory at startup) |
 | `USER_PASSWORD` | **yes** | Plaintext standard-user password (hashed at startup) |
 | `TCS_ION_API_URL` | **yes** | Full TCS iON API URL incl. auth params |
@@ -697,8 +745,9 @@ Loaded by `python-dotenv` at startup in both `app.py` and `email_service.py`. A 
 | `SMTP_USERNAME` | no | Office 365 sender account |
 | `SMTP_PASSWORD` | no | Office 365 app password |
 | `HTTPS_ONLY` | no (`false`) | `true` sets `SESSION_COOKIE_SECURE=True` (HTTPS deployments) |
+| `APP_DB_PATH` | no (`data/app.db`) | Override the SQLite DB file location (read by `db.py`) |
 
-Missing any **required** variable raises `KeyError` and the app refuses to start (fail-fast).
+Missing any **required** variable raises `KeyError` and the app refuses to start (fail-fast). The three role passwords map to accounts `superadmin` / `admin` / `user`.
 
 ### Constants in `app.py`
 
