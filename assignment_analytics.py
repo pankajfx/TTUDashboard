@@ -128,9 +128,11 @@ def _classify_user(records, created_dt):
     """Given all API records for one (course, user) and the assignment creation
     datetime, return (status, percentage, completion_date_str, stale_bool).
 
-    status ∈ {'completed', 'in_progress', 'stale', 'not_started'}.
-    A completion counts only if it is dated on/after the assignment was created;
-    completions strictly before creation are 'stale' (must be redone)."""
+    status ∈ {'completed', 'in_progress', 'not_started'}.
+    A completion counts only if it is dated on/after the assignment was created.
+    A completion strictly before creation is a "stale" prior completion: it does
+    NOT count for this assignment, so the user is classified 'not_started' (they
+    must redo it) with the stale flag set so callers can annotate the row."""
     if not records:
         # user is assigned but never appeared in the API → never opened portal
         return "not_started", 0.0, "", False
@@ -161,10 +163,12 @@ def _classify_user(records, created_dt):
             dated = [d for d in valid if d is not None]
             latest = max(dated) if dated else None
             return "completed", 100.0, (latest.strftime("%Y-%m-%d") if latest else ""), False
-        # every completion predates the assignment → stale, must redo
+        # every completion predates the assignment → the prior completion is
+        # "stale": it does not count here, so treat the user as Not Started
+        # (must redo). Keep the flag + date so the row can note the prior finish.
         stale_dates = [d for d in completed_dates if d is not None]
         latest_stale = max(stale_dates).strftime("%Y-%m-%d") if stale_dates else ""
-        return "stale", max_pct, latest_stale, True
+        return "not_started", 0.0, latest_stale, True
 
     # no completion on record
     if attempted or max_pct > 0:
@@ -203,11 +207,14 @@ def compute_assignment_progress(assignment: dict, api_index) -> dict:
             completed += 1
         elif status == "in_progress":
             in_progress += 1
-        elif status == "stale":
-            stale += 1
         else:
+            # not_started — this includes "stale" prior completions. `stale` is
+            # tracked as a subset of not_started purely for reference; those users
+            # still need to redo the course, so they are Not Started here.
             not_started += 1
-            if is_untouched:
+            if is_stale:
+                stale += 1
+            elif is_untouched:
                 untouched += 1
 
     total = len(emails)

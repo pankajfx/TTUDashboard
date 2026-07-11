@@ -7,136 +7,31 @@
     <title>Settings - Course Analytics Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.min.css') }}">
     <meta name="csrf-token" content="{{ csrf_token }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modern.css') }}">
     <style>
-        body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 75%, #00f2fe 100%);
-            background-size: 400% 400%;
-            animation: gradientShift 60s ease infinite;
-            min-height: 100vh;
-            padding-bottom: 60px;
-        }
+        body.p-3 { padding: .75rem !important; }
+        @media (min-width: 640px) { body.sm\:p-8 { padding: 1rem 1.25rem !important; } }
 
-        @keyframes gradientShift {
-            0% {
-                background-position: 0% 50%;
-            }
+        .tab-btn { padding: .5rem .9rem; border-bottom: 3px solid transparent; }
 
-            50% {
-                background-position: 100% 50%;
-            }
+        .user-item, .assignment-item { transition: background .15s ease; }
+        .user-item:hover, .assignment-item:hover { background: #f8fafc; transform: none; }
 
-            100% {
-                background-position: 0% 50%;
-            }
-        }
+        /* Compact headings */
+        h1 { font-size: 1.15rem !important; }
+        @media (min-width: 640px) { h1 { font-size: 1.35rem !important; } }
+        .card h2 { font-size: 1rem !important; }
 
-        .card {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 1rem;
-            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-            border: 1px solid rgba(255, 255, 255, 0.18);
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            transition: all 0.3s ease;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn-danger {
-            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-        }
-
-        .btn-danger:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
-        }
-
-        .input-field {
-            border: 2px solid rgba(102, 126, 234, 0.2);
-            transition: all 0.3s ease;
-            box-sizing: border-box;
-            max-width: 100%;
-            min-width: 0;
-            width: 100%;
-        }
-
-        input[type="date"].input-field {
-            -webkit-appearance: none;
-            appearance: none;
-            display: block;
-            width: 100% !important;
-            max-width: 100% !important;
-            min-width: 0 !important;
-            box-sizing: border-box !important;
-            height: 42px;
-            line-height: 1.5;
-        }
-
-        .input-field:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        .tab-btn {
-            padding: 0.75rem 1.5rem;
-            border-bottom: 3px solid transparent;
-            transition: all 0.3s ease;
-        }
-
-        .tab-btn.active {
-            border-bottom-color: #667eea;
-            color: #667eea;
-            font-weight: 600;
-        }
-
-        .user-item,
-        .assignment-item {
-            transition: all 0.2s ease;
-        }
-
-        .user-item:hover,
-        .assignment-item:hover {
-            background: rgba(102, 126, 234, 0.05);
-            transform: translateX(4px);
-        }
-        
         /* Mobile modal: slide up from bottom as a sheet */
         @media (max-width: 640px) {
             .fixed.inset-0.flex.items-center { align-items: flex-end !important; }
             .card.max-w-2xl, .card.max-w-6xl, .card.max-w-sm {
                 max-width: 100% !important;
                 width: 100% !important;
-                border-radius: 1rem 1rem 0 0 !important;
+                border-radius: 14px 14px 0 0 !important;
                 max-height: 92vh !important;
             }
             .text-2xl.font-bold { font-size: 1.1rem; }
-        }
-
-        /* Scrollbar styling */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-        
-        ::-webkit-scrollbar-track {
-            background: rgba(241, 245, 249, 0.5);
-            border-radius: 4px;
-        }
-        
-        ::-webkit-scrollbar-thumb {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 4px;
-        }
-        
-        ::-webkit-scrollbar-thumb:hover {
-            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
         }
     </style>
 </head>
@@ -150,7 +45,7 @@
                     <h1 class="text-xl sm:text-3xl font-bold text-gray-900">Admin Settings</h1>
                     <p class="text-xs sm:text-sm text-gray-600 mt-1">Manage users and course assignments</p>
                 </div>
-                <a href="{{ url_for('index') }}"
+                <a href="{% if role == 'superadmin' %}{{ url_for('index') }}{% else %}{{ url_for('assignments_dashboard') }}{% endif %}"
                     class="px-3 py-1.5 text-sm sm:px-4 sm:py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition whitespace-nowrap">
                     ← Back
                 </a>
@@ -508,9 +403,9 @@
                     </button>
                 </div>
 
-                <!-- Stats Cards (6 columns via inline grid-template so it does not depend on
-                     purged Tailwind grid-cols-6, which is not in the prebuilt CSS) -->
-                <div class="grid gap-1.5 sm:gap-3 mb-3" style="grid-template-columns:repeat(6,minmax(0,1fr));">
+                <!-- Stats Cards (5 columns via inline grid-template so it does not depend on
+                     purged Tailwind grid-cols utilities, which are not in the prebuilt CSS) -->
+                <div class="grid gap-1.5 sm:gap-3 mb-3" style="grid-template-columns:repeat(5,minmax(0,1fr));">
                     <div class="bg-blue-50 border border-blue-100 rounded-lg px-2 py-1.5 sm:px-3 sm:py-2 flex flex-col items-center text-center">
                         <p class="text-gray-500 leading-tight" style="font-size:0.6rem;">Total</p>
                         <p id="statTotalUsers" class="font-bold text-blue-600 leading-tight text-sm sm:text-xl">0</p>
@@ -526,10 +421,6 @@
                     <div class="bg-red-50 border border-red-100 rounded-lg px-2 py-1.5 sm:px-3 sm:py-2 flex flex-col items-center text-center">
                         <p class="text-gray-500 leading-tight" style="font-size:0.6rem;">Not Started</p>
                         <p id="statNotStarted" class="font-bold text-red-600 leading-tight text-sm sm:text-xl">0</p>
-                    </div>
-                    <div id="statStaleCard" class="bg-orange-50 border border-orange-100 rounded-lg px-2 py-1.5 sm:px-3 sm:py-2 flex flex-col items-center text-center">
-                        <p class="text-gray-500 leading-tight" style="font-size:0.6rem;" title="Completed before the assignment was created — must be redone">Stale</p>
-                        <p id="statStale" class="font-bold text-orange-600 leading-tight text-sm sm:text-xl">0</p>
                     </div>
                     <div class="bg-purple-50 border border-purple-100 rounded-lg px-2 py-1.5 sm:px-3 sm:py-2 flex flex-col items-center text-center">
                         <p class="text-gray-500 leading-tight" style="font-size:0.6rem;">Completion</p>
@@ -1558,9 +1449,7 @@
             for (let p = from; p <= to; p++) {
                 const active = p === assignmentPage;
                 html += `<button onclick="goToAssignmentPage(${p})"
-                    class="px-2.5 py-1 text-sm rounded-lg transition ${active
-                        ? 'bg-blue-600 text-white font-semibold'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}">${p}</button>`;
+                    class="page-btn${active ? ' active' : ''}">${p}</button>`;
             }
             document.getElementById('assignmentPageNumbers').innerHTML = html;
         }
@@ -1662,7 +1551,7 @@
                         <div class="text-xs text-gray-600 mt-2">
                             <span class="text-green-600">✓ ${h(assignment.stats.completed)}</span> |
                             <span class="text-yellow-600">⟳ ${h(assignment.stats.in_progress)}</span> |
-                            <span class="text-red-600">✗ ${h(assignment.stats.not_started)}</span>${assignment.stats.stale ? ` | <span class="text-orange-600" title="Stale — completed before assigned, must redo">⚠ ${h(assignment.stats.stale)}</span>` : ''}
+                            <span class="text-red-600">✗ ${h(assignment.stats.not_started)}</span>
                         </div>
                     ` : ''}
                     <p class="text-xs text-gray-400 mt-2">Created: ${h(assignment.created_date)}</p>
@@ -1784,9 +1673,6 @@
             document.getElementById('statCompleted').textContent = data.completed;
             document.getElementById('statInProgress').textContent = data.in_progress;
             document.getElementById('statNotStarted').textContent = data.not_started;
-            document.getElementById('statStale').textContent = (data.stale != null ? data.stale : 0);
-            // "Stale" only applies to the assignment view (needs a creation date to compare against)
-            document.getElementById('statStaleCard').style.display = (view === 'assignment') ? '' : 'none';
             document.getElementById('statCompletionRate').textContent = data.completion_rate.toFixed(1) + '%';
 
             // Update users table
@@ -1803,26 +1689,26 @@
 
             tbody.innerHTML = users.map(user => {
                 const isStale = !!user.stale;
-                const statusClass = isStale ? 'bg-orange-100 text-orange-800' :
-                    user.completion_status === 'Completed' ? 'bg-green-100 text-green-800' :
-                        user.completion_status === 'Current' ? 'bg-yellow-100 text-yellow-800' :
-                            user.untouched ? 'bg-gray-100 text-gray-800' :
-                                'bg-red-100 text-red-800';
+                // Stale prior completions count as Not Started (must redo).
+                const statusClass = user.completion_status === 'Completed' ? 'bg-green-100 text-green-800' :
+                    user.completion_status === 'Current' ? 'bg-yellow-100 text-yellow-800' :
+                        user.untouched ? 'bg-gray-100 text-gray-800' :
+                            'bg-red-100 text-red-800';
 
-                const statusText = isStale ? 'Stale · redo' : (user.untouched ? 'Not Touched' : user.completion_status || 'Not Started');
+                const statusText = user.untouched ? 'Not Touched' : (user.completion_status || 'Not Started');
                 // a stale completion contributes 0% toward this assignment
                 const progress = isStale ? 0 : parseFloat(user.completion_percentage || 0);
                 const progressColor = progress >= 75 ? 'bg-green-500' : progress >= 50 ? 'bg-yellow-500' : 'bg-red-500';
-                const dateCell = user.completion_date
-                    ? h(user.completion_date) + (isStale ? ' <span class="text-orange-600 text-xs">(before assigned)</span>' : '')
-                    : '-';
+                const dateCell = isStale
+                    ? '<span class="text-gray-400">—</span> <span class="text-gray-400" style="font-size:11px;">(done ' + h(user.completion_date) + ', before assigned)</span>'
+                    : (user.completion_date ? h(user.completion_date) : '-');
 
                 return `
                     <tr class="hover:bg-gray-50">
                         <td class="px-4 py-3 text-sm text-gray-900">${h(user.email)}</td>
                         <td class="px-4 py-3 text-sm text-gray-700">${h(user.name || '-')}</td>
                         <td class="px-4 py-3">
-                            <span class="px-2 py-1 text-xs font-medium rounded ${statusClass}">
+                            <span class="status-pill ${statusClass}">
                                 ${h(statusText)}
                             </span>
                         </td>
@@ -2081,12 +1967,8 @@
     </div>
 
     <!-- Footer -->
-    <footer class="fixed bottom-0 left-0 right-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 text-white py-2 sm:py-3 shadow-lg z-40">
-        <div class="container mx-auto px-4 text-center">
-            <p class="font-medium" style="font-size: clamp(0.55rem, 2vw, 0.875rem);">
-                 Safety & Excellence Dashboard (v1.2) © 2025 Nelco
-            </p>
-        </div>
+    <footer class="app-footer">
+        <p>Safety &amp; Excellence Dashboard (v1.2) © 2025 Nelco</p>
     </footer>
 </body>
 

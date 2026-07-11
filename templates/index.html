@@ -7,499 +7,9 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.min.css') }}">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <script src="{{ url_for('static', filename='js/echarts.min.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modern.css') }}">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 75%, #00f2fe 100%);
-            background-size: 400% 400%;
-            animation: gradientShift 60s ease infinite;
-            min-height: 100vh;
-            min-height: 100dvh;
-            padding-bottom: 52px;
-        }
-
-        footer.fixed {
-            bottom: 0;
-            bottom: env(safe-area-inset-bottom, 0);
-        }
-        
-        @keyframes gradientShift {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
-        
-        .card { 
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 1rem;
-            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37),
-                        0 4px 6px -1px rgba(0, 0, 0, 0.1),
-                        inset 0 1px 0 0 rgba(255, 255, 255, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.18);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-        
-        .card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.45),
-                        0 8px 12px -2px rgba(0, 0, 0, 0.15),
-                        inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
-        }
-        
-        .header-gradient {
-            background: linear-gradient(135deg, 
-                rgba(102, 126, 234, 0.95) 0%, 
-                rgba(118, 75, 162, 0.95) 50%,
-                rgba(102, 126, 234, 0.95) 100%);
-            backdrop-filter: blur(20px);
-            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.4),
-                        0 2px 8px 0 rgba(0, 0, 0, 0.1),
-                        inset 0 1px 0 0 rgba(255, 255, 255, 0.3);
-            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .header-gradient::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, 
-                transparent, 
-                rgba(255, 255, 255, 0.2), 
-                transparent);
-            animation: shimmer 20s infinite;
-        }
-        
-        @keyframes shimmer {
-            0% { left: -100%; }
-            100% { left: 100%; }
-        }
-        
-        .header-icon {
-            width: 38px;
-            height: 38px;
-            background: rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(10px);
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15),
-                        inset 0 1px 0 rgba(255, 255, 255, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            transition: all 0.3s ease;
-            flex-shrink: 0;
-        }
-
-        @media (min-width: 768px) {
-            .header-icon { width: 56px; height: 56px; border-radius: 16px; }
-        }
-
-        .header-icon:hover {
-            transform: scale(1.05) rotate(5deg);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
-        }
-        
-        .header-title {
-            font-size: 0.65rem;
-            font-weight: 800;
-            color: white;
-            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2),
-                         0 1px 3px rgba(0, 0, 0, 0.3);
-            letter-spacing: -0.025em;
-            line-height: 1.2;
-        }
-
-        @media (min-width: 480px) {
-            .header-title { font-size: 0.85rem; }
-        }
-
-        @media (min-width: 768px) {
-            .header-title { font-size: 1.345rem; }
-        }
-
-        .header-subtitle {
-            display: none;
-        }
-
-        @media (min-width: 480px) {
-            .header-subtitle {
-                display: block;
-                color: rgba(255, 255, 255, 0.9);
-                font-size: 0.65rem;
-                font-weight: 500;
-                margin-top: 0.15rem;
-                text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-            }
-        }
-
-        @media (min-width: 768px) {
-            .header-subtitle { font-size: 0.875rem; margin-top: 0.25rem; }
-        }
-        
-        .header-badge {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            background: rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(10px);
-            padding: 0.5rem 1rem;
-            border-radius: 9999px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1),
-                        inset 0 1px 0 rgba(255, 255, 255, 0.2);
-        }
-        
-        .badge-dot {
-            width: 8px;
-            height: 8px;
-            background: #10b981;
-            border-radius: 50%;
-            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3),
-                        0 0 10px rgba(16, 185, 129, 0.5);
-            animation: pulse 5s ease-in-out infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { 
-                transform: scale(1);
-                opacity: 1;
-            }
-            50% { 
-                transform: scale(1.2);
-                opacity: 0.8;
-            }
-        }
-        
-        .badge-text {
-            color: white;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-        }
-        
-        .settings-btn, .logout-btn {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            background: rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(10px);
-            padding: 0.4rem 0.6rem;
-            border-radius: 0.5rem;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            color: white;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-decoration: none;
-            transition: all 0.3s ease;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        }
-
-        @media (min-width: 768px) {
-            .settings-btn, .logout-btn {
-                padding: 0.5rem 1rem;
-                font-size: 0.875rem;
-            }
-        }
-
-        /* Hide button text on very small screens, show only icons */
-        @media (max-width: 480px) {
-            .settings-btn span, .logout-btn span { display: none; }
-            .header-badge { display: none; }
-        }
-
-        .settings-btn:hover, .logout-btn:hover {
-            background: rgba(255, 255, 255, 0.3);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        }
-        
-        .loading { 
-            display: inline-block; 
-            width: 20px; 
-            height: 20px; 
-            border: 3px solid rgba(59, 130, 246, 0.3); 
-            border-radius: 50%; 
-            border-top-color: #3b82f6; 
-            animation: spin 1s ease-in-out infinite;
-            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
-        }
-        
-        @keyframes spin { to { transform: rotate(360deg); } }
-        
-        .refresh-spinning {
-            animation: spin 1s linear infinite;
-        }
-        
-        @keyframes fade-in {
-            from {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        
-        .animate-fade-in {
-            animation: fade-in 0.3s ease-out;
-        }
-        
-        .sortable { 
-            cursor: pointer; 
-            user-select: none;
-            transition: all 0.2s ease;
-        }
-        
-        .sortable:hover { 
-            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
-            transform: translateY(-1px);
-        }
-        
-        .sort-icon { display: inline-block; margin-left: 0.25rem; opacity: 0.3; }
-        .sort-icon.active { opacity: 1; }
-        svg { display: block; flex-shrink: 0; }
-        
-        .modal { 
-            display: none; 
-            position: fixed; 
-            z-index: 50; 
-            left: 0; 
-            top: 0; 
-            width: 100%; 
-            height: 100%; 
-            overflow: auto; 
-            background: rgba(0, 0, 0, 0.6);
-            backdrop-filter: blur(4px);
-        }
-        
-        .modal.active { display: flex; align-items: center; justify-content: center; }
-        
-        .modal-content {
-            background: rgba(255, 255, 255, 0.98);
-            backdrop-filter: blur(10px);
-            margin: auto;
-            padding: 0;
-            border-radius: 1rem;
-            width: 96%;
-            max-width: 90%;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 20px 60px 0 rgba(31, 38, 135, 0.5),
-                        inset 0 1px 0 0 rgba(255, 255, 255, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.18);
-        }
-
-        @media (max-width: 640px) {
-            .modal-content {
-                width: 100%;
-                max-width: 100%;
-                border-radius: 1rem 1rem 0 0;
-                margin: auto 0 0 0;
-                max-height: 92vh;
-            }
-            .modal { align-items: flex-end; }
-        }
-
-        .modal-header {
-            padding: 1rem;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-            flex-shrink: 0;
-        }
-
-        @media (min-width: 640px) {
-            .modal-header { padding: 1.5rem; }
-        }
-        
-        .modal-table-container {
-            flex: 1;
-            overflow-y: auto;
-            min-height: 0;
-            padding: 0 1.5rem 1.5rem 1.5rem;
-        }
-        
-        .modal-table-container table {
-            width: 100%;
-        }
-        
-        .modal-table-container thead {
-            position: sticky;
-            top: 0;
-            z-index: 10;
-            background: rgba(0, 0, 0, 0.98);
-            backdrop-filter: blur(10px);
-        }
-        
-        body.modal-open {
-            overflow: hidden;
-        }
-
-        /* Mobile: full-screen sheet modals */
-        @media (max-width: 640px) {
-            #statusDetailsModal .modal-content,
-            #courseModal .modal-content,
-            #userModal .modal-content,
-            #chartModal .modal-content {
-                width: 100% !important;
-                max-width: 100% !important;
-                border-radius: 1rem 1rem 0 0;
-                margin: auto 0 0 0;
-                max-height: 92vh;
-            }
-            #statusDetailsModal,
-            #courseModal,
-            #userModal,
-            #chartModal {
-                align-items: flex-end;
-            }
-            #chartModalContent { min-height: 260px; }
-            .modal-header h2 { font-size: 1rem; }
-            .modal-table-container { padding: 0 0.75rem 0.75rem 0.75rem; }
-            .modal-table-container th,
-            .modal-table-container td { padding: 0.5rem 0.5rem; font-size: 0.75rem; }
-        }
-        
-        .chart-controls {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            z-index: 10;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .toggle-btn, .icon-btn {
-            height: 26px;
-            padding: 0 8px;
-            font-size: 11px;
-            line-height: 1;
-            border-radius: 6px;
-            border: 1px solid rgba(209, 213, 219, 0.5);
-            background: rgba(255, 255, 255, 0.9);
-            backdrop-filter: blur(10px);
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .icon-btn {
-            width: 26px;
-            padding: 0;
-        }
-
-        .toggle-btn:hover, .icon-btn:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-        }
-
-        .toggle-btn.active {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-color: transparent;
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-        }
-
-        .icon-btn:hover {
-            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
-        }
-        
-        .tab-btn { 
-            transition: all 0.3s ease;
-            position: relative;
-        }
-        
-        .tab-btn.active { 
-            color: #667eea;
-            border-color: #667eea;
-            font-weight: 600;
-        }
-        
-        .tab-btn.active::after {
-            content: '';
-            position: absolute;
-            bottom: -2px;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-            border-radius: 2px 2px 0 0;
-        }
-        
-        .tab-content { display: block; }
-        .tab-content.hidden { display: none; }
-        
-        /* KPI Card Icons with gradient backgrounds */
-        .bg-blue-100 { 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        }
-        .bg-green-100 { 
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
-        }
-        .bg-purple-100 { 
-            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%) !important;
-        }
-        .bg-yellow-100 { 
-            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
-        }
-        
-        .bg-blue-100 svg, .bg-green-100 svg, .bg-purple-100 svg, .bg-yellow-100 svg {
-            color: white !important;
-        }
-        
-        /* Button styling */
-        button.bg-blue-600 {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-            transition: all 0.3s ease;
-        }
-        
-        button.bg-blue-600:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
-        }
-        
-        /* Table row hover effect */
-        tbody tr:hover {
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%) !important;
-            transform: translateX(2px);
-            transition: all 0.2s ease;
-        }
-        
-        /* Scrollbar styling */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-        
-        ::-webkit-scrollbar-track {
-            background: rgba(241, 245, 249, 0.5);
-            border-radius: 4px;
-        }
-        
-        ::-webkit-scrollbar-thumb {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 4px;
-        }
-        
-        ::-webkit-scrollbar-thumb:hover {
-            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
-        }
+        /* Chart canvases sit inside relative cards; nothing page-specific needed yet. */
     </style>
 </head>
 <body>
@@ -531,7 +41,7 @@
                         </svg>
                         <span>FY Analytics</span>
                     </a>
-                    {% if username == 'admin' %}
+                    {% if role in ['admin', 'superadmin'] %}
                     <a href="{{ url_for('settings') }}" class="settings-btn">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
@@ -602,7 +112,7 @@
                                 <p class="text-xs text-gray-500 sm:mt-0.5" id="cache-age-text"></p>
                             </div>
                         </div>
-                        <button id="refresh-btn" onclick="refreshData()" class="w-full flex items-center justify-center space-x-2 px-3 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-sm font-medium rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
+                        <button id="refresh-btn" onclick="refreshData()" class="w-full flex items-center justify-center space-x-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
                             <svg id="refresh-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                             </svg>
@@ -1132,9 +642,9 @@
                         end: dzEnd,
                         width: 14,
                         right: 4,
-                        fillerColor: 'rgba(102,126,234,0.25)',
-                        borderColor: 'rgba(102,126,234,0.3)',
-                        handleStyle: { color: '#667eea' },
+                        fillerColor: 'rgba(13,148,136,0.2)',
+                        borderColor: 'rgba(13,148,136,0.3)',
+                        handleStyle: { color: '#0d9488' },
                         show: totalItems > 8
                     }
                 ],
@@ -1142,7 +652,13 @@
                     name: 'Users',
                     type: 'bar',
                     data: reversedData.map(c => c.total_users),
-                    itemStyle: { color: '#3b82f6' }
+                    itemStyle: {
+                        borderRadius: [0, 4, 4, 0],
+                        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                            { offset: 0, color: '#14b8a6' },
+                            { offset: 1, color: '#06b6d4' }
+                        ])
+                    }
                 }]
             };
             charts.enrollment.setOption(option);
@@ -1219,30 +735,6 @@
                     }
                 },
                 series: [
-                    // Shadow layer — 3D depth effect
-                    {
-                        name: 'shadow',
-                        type: 'pie',
-                        radius: [innerR, outerR],
-                        center: isMobile ? ['50%', '42%'] : ['65%', '50%'],
-                        silent: true,
-                        label: { show: false },
-                        labelLine: { show: false },
-                        itemStyle: {
-                            color: 'rgba(0,0,0,0.08)',
-                            borderWidth: 0,
-                        },
-                        data: [
-                            { value: totalCompleted,   name: 'Completed' },
-                            { value: totalInProgress,  name: 'In Progress' },
-                            { value: totalNotStarted,  name: 'Not Started' }
-                        ],
-                        tooltip: { show: false },
-                        z: 1,
-                        // Offset downward to create shadow
-                        top: 6
-                    },
-                    // Main pie
                     {
                         name: 'Status',
                         type: 'pie',
@@ -1253,65 +745,22 @@
                         hoverOffset: isMobile ? 6 : 10,
                         selectedMode: false,
                         itemStyle: {
-                            borderRadius: isMobile ? 5 : 8,
+                            borderRadius: 6,
                             borderColor: '#ffffff',
-                            borderWidth: 3,
-                            shadowBlur: 20,
-                            shadowOffsetX: 0,
-                            shadowOffsetY: 6,
-                            shadowColor: 'rgba(0,0,0,0.25)'
+                            borderWidth: 2
                         },
                         label: { show: false },
                         labelLine: { show: false },
                         emphasis: {
                             label: { show: false },
-                            itemStyle: {
-                                shadowBlur: 40,
-                                shadowOffsetY: 12,
-                                shadowColor: 'rgba(0,0,0,0.4)',
-                                borderWidth: 4
-                            },
                             scale: true,
-                            scaleSize: isMobile ? 5 : 8
+                            scaleSize: isMobile ? 4 : 6
                         },
                         z: 2,
                         data: [
-                            {
-                                value: totalCompleted,
-                                name: 'Completed',
-                                itemStyle: {
-                                    color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-                                        colorStops: [
-                                            { offset: 0, color: '#34d399' },
-                                            { offset: 1, color: '#059669' }
-                                        ]
-                                    }
-                                }
-                            },
-                            {
-                                value: totalInProgress,
-                                name: 'In Progress',
-                                itemStyle: {
-                                    color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-                                        colorStops: [
-                                            { offset: 0, color: '#fcd34d' },
-                                            { offset: 1, color: '#d97706' }
-                                        ]
-                                    }
-                                }
-                            },
-                            {
-                                value: totalNotStarted,
-                                name: 'Not Started',
-                                itemStyle: {
-                                    color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-                                        colorStops: [
-                                            { offset: 0, color: '#cbd5e1' },
-                                            { offset: 1, color: '#64748b' }
-                                        ]
-                                    }
-                                }
-                            }
+                            { value: totalCompleted, name: 'Completed', itemStyle: { color: '#10b981' } },
+                            { value: totalInProgress, name: 'In Progress', itemStyle: { color: '#f59e0b' } },
+                            { value: totalNotStarted, name: 'Not Started', itemStyle: { color: '#94a3b8' } }
                         ]
                     }
                 ]
@@ -1388,9 +837,9 @@
                         end: 100,
                         height: 14,
                         bottom: 4,
-                        fillerColor: 'rgba(102,126,234,0.25)',
-                        borderColor: 'rgba(102,126,234,0.3)',
-                        handleStyle: { color: '#667eea' },
+                        fillerColor: 'rgba(13,148,136,0.2)',
+                        borderColor: 'rgba(13,148,136,0.3)',
+                        handleStyle: { color: '#0d9488' },
                         show: totalUsers > 8
                     }
                 ],
@@ -1399,13 +848,13 @@
                         name: 'Total Courses',
                         type: 'bar',
                         data: dataToShow.map(u => u.total_courses),
-                        itemStyle: { color: '#3b82f6' }
+                        itemStyle: { borderRadius: [4, 4, 0, 0], color: '#06b6d4' }
                     },
                     {
                         name: 'Completed',
                         type: 'bar',
                         data: dataToShow.map(u => u.completed_courses),
-                        itemStyle: { color: '#10b981' }
+                        itemStyle: { borderRadius: [4, 4, 0, 0], color: '#10b981' }
                     }
                 ]
             };
@@ -1710,15 +1159,15 @@
                 return `<div class="p-8 text-center text-gray-500">No ${statusName.toLowerCase()} courses found</div>`;
             }
             
-            let html = '<div class="space-y-6 p-4">';
-            
+            let html = '<div class="space-y-4 p-3">';
+
             Object.keys(courseMap).sort().forEach(courseName => {
                 const users = courseMap[courseName];
                 html += `
-                    <div class="border border-gray-100 rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
-                        <div class="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-5 py-4 flex items-center justify-between gap-3">
-                            <h3 class="font-bold text-base leading-tight truncate">${h(courseName)}</h3>
-                            <span class="flex-shrink-0 bg-white/20 text-white text-xs font-semibold px-3 py-1 rounded-full whitespace-nowrap">${h(users.length)} user${users.length !== 1 ? 's' : ''}</span>
+                    <div class="border border-gray-200 rounded-xl overflow-hidden">
+                        <div class="bg-gray-50 border-b border-gray-200 px-4 py-2.5 flex items-center justify-between gap-3">
+                            <h3 class="font-semibold text-sm text-gray-900 leading-tight truncate">${h(courseName)}</h3>
+                            <span class="flex-shrink-0 bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1 rounded-full whitespace-nowrap">${h(users.length)} user${users.length !== 1 ? 's' : ''}</span>
                         </div>
                         <div class="overflow-x-auto">
                             <table class="min-w-full divide-y divide-gray-200">
@@ -1794,18 +1243,18 @@
                 return `<div class="p-8 text-center text-gray-500">No users with ${statusName.toLowerCase()} courses found</div>`;
             }
             
-            let html = '<div class="space-y-6 p-4">';
-            
+            let html = '<div class="space-y-4 p-3">';
+
             Object.keys(userMap).sort().forEach(userEmail => {
                 const userData = userMap[userEmail];
                 html += `
-                    <div class="border border-gray-100 rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
-                        <div class="bg-gradient-to-r from-blue-500 to-cyan-600 text-white px-5 py-4 flex items-center justify-between gap-3">
+                    <div class="border border-gray-200 rounded-xl overflow-hidden">
+                        <div class="bg-gray-50 border-b border-gray-200 px-4 py-2.5 flex items-center justify-between gap-3">
                             <div class="min-w-0">
-                                <h3 class="font-bold text-base leading-tight truncate">${h(userData.name)}</h3>
-                                <p class="text-xs opacity-80 truncate mt-0.5">${h(userEmail)}</p>
+                                <h3 class="font-semibold text-sm text-gray-900 leading-tight truncate">${h(userData.name)}</h3>
+                                <p class="text-xs text-gray-500 truncate mt-0.5">${h(userEmail)}</p>
                             </div>
-                            <span class="flex-shrink-0 bg-white/20 text-white text-xs font-semibold px-3 py-1 rounded-full whitespace-nowrap">${h(userData.courses.length)} course${userData.courses.length !== 1 ? 's' : ''}</span>
+                            <span class="flex-shrink-0 bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1 rounded-full whitespace-nowrap">${h(userData.courses.length)} course${userData.courses.length !== 1 ? 's' : ''}</span>
                         </div>
                         <div class="overflow-x-auto">
                             <table class="min-w-full divide-y divide-gray-200">
@@ -2037,12 +1486,8 @@
     </script>
 
     <!-- Footer -->
-    <footer class="fixed bottom-0 left-0 right-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 text-white py-2 sm:py-3 shadow-lg z-40">
-        <div class="container mx-auto px-4 text-center">
-            <p class="font-medium" style="font-size: clamp(0.55rem, 2vw, 0.875rem);">
-                Safety & Excellence Dashboard (v1.2) © 2025 Nelco
-            </p>
-        </div>
+    <footer class="app-footer">
+        <p>Safety &amp; Excellence Dashboard (v1.2) © 2025 Nelco</p>
     </footer>
 </body>
 </html>

@@ -7,521 +7,20 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.min.css') }}">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <script src="{{ url_for('static', filename='js/echarts.min.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modern.css') }}">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 75%, #00f2fe 100%);
-            background-size: 400% 400%;
-            animation: gradientShift 60s ease infinite;
-            min-height: 100vh;
-            min-height: 100dvh;
-            padding-bottom: 52px;
-        }
-
-        footer.fixed {
-            bottom: 0;
-            bottom: env(safe-area-inset-bottom, 0);
-        }
-        
-        @keyframes gradientShift {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
-        
-        .card { 
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 1rem;
-            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37),
-                        0 4px 6px -1px rgba(0, 0, 0, 0.1),
-                        inset 0 1px 0 0 rgba(255, 255, 255, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.18);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-        
-        .card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.45),
-                        0 8px 12px -2px rgba(0, 0, 0, 0.15),
-                        inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
-        }
-        
-        .header-gradient {
-            background: linear-gradient(135deg, 
-                rgba(102, 126, 234, 0.95) 0%, 
-                rgba(118, 75, 162, 0.95) 50%,
-                rgba(102, 126, 234, 0.95) 100%);
-            backdrop-filter: blur(20px);
-            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.4),
-                        0 2px 8px 0 rgba(0, 0, 0, 0.1),
-                        inset 0 1px 0 0 rgba(255, 255, 255, 0.3);
-            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .header-gradient::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, 
-                transparent, 
-                rgba(255, 255, 255, 0.2), 
-                transparent);
-            animation: shimmer 20s infinite;
-        }
-        
-        @keyframes shimmer {
-            0% { left: -100%; }
-            100% { left: 100%; }
-        }
-        
-        .header-icon {
-            width: 38px;
-            height: 38px;
-            background: rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(10px);
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15),
-                        inset 0 1px 0 rgba(255, 255, 255, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            transition: all 0.3s ease;
-            flex-shrink: 0;
-        }
-
-        @media (min-width: 768px) {
-            .header-icon { width: 56px; height: 56px; border-radius: 16px; }
-        }
-
-        .header-icon:hover {
-            transform: scale(1.05) rotate(5deg);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
-        }
-        
-        .header-title {
-            font-size: 0.65rem;
-            font-weight: 800;
-            color: white;
-            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2),
-                         0 1px 3px rgba(0, 0, 0, 0.3);
-            letter-spacing: -0.025em;
-            line-height: 1.2;
-        }
-
-        @media (min-width: 480px) {
-            .header-title { font-size: 0.85rem; }
-        }
-
-        @media (min-width: 768px) {
-            .header-title { font-size: 1.345rem; }
-        }
-
-        .header-subtitle {
-            display: none;
-        }
-
-        @media (min-width: 480px) {
-            .header-subtitle {
-                display: block;
-                color: rgba(255, 255, 255, 0.9);
-                font-size: 0.65rem;
-                font-weight: 500;
-                margin-top: 0.15rem;
-                text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-            }
-        }
-
-        @media (min-width: 768px) {
-            .header-subtitle { font-size: 0.875rem; margin-top: 0.25rem; }
-        }
-        
-        .header-badge {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            background: rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(10px);
-            padding: 0.5rem 1rem;
-            border-radius: 9999px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1),
-                        inset 0 1px 0 rgba(255, 255, 255, 0.2);
-        }
-        
-        .badge-dot {
-            width: 8px;
-            height: 8px;
-            background: #10b981;
-            border-radius: 50%;
-            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3),
-                        0 0 10px rgba(16, 185, 129, 0.5);
-            animation: pulse 5s ease-in-out infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { 
-                transform: scale(1);
-                opacity: 1;
-            }
-            50% { 
-                transform: scale(1.2);
-                opacity: 0.8;
-            }
-        }
-        
-        .badge-text {
-            color: white;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-        }
-        
-        .settings-btn, .logout-btn {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            background: rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(10px);
-            padding: 0.4rem 0.6rem;
-            border-radius: 0.5rem;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            color: white;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-decoration: none;
-            transition: all 0.3s ease;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        }
-
-        @media (min-width: 768px) {
-            .settings-btn, .logout-btn {
-                padding: 0.5rem 1rem;
-                font-size: 0.875rem;
-            }
-        }
-
-        /* Hide button text on very small screens, show only icons */
-        @media (max-width: 480px) {
-            .settings-btn span, .logout-btn span { display: none; }
-            .header-badge { display: none; }
-        }
-
-        .settings-btn:hover, .logout-btn:hover {
-            background: rgba(255, 255, 255, 0.3);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        }
-        
-        .loading { 
-            display: inline-block; 
-            width: 20px; 
-            height: 20px; 
-            border: 3px solid rgba(59, 130, 246, 0.3); 
-            border-radius: 50%; 
-            border-top-color: #3b82f6; 
-            animation: spin 1s ease-in-out infinite;
-            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
-        }
-        
-        @keyframes spin { to { transform: rotate(360deg); } }
-        
-        .refresh-spinning {
-            animation: spin 1s linear infinite;
-        }
-        
-        @keyframes fade-in {
-            from {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        
-        .animate-fade-in {
-            animation: fade-in 0.3s ease-out;
-        }
-        
-        .sortable { 
-            cursor: pointer; 
-            user-select: none;
-            transition: all 0.2s ease;
-        }
-        
-        .sortable:hover { 
-            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
-            transform: translateY(-1px);
-        }
-        
-        .sort-icon { display: inline-block; margin-left: 0.25rem; opacity: 0.3; }
-        .sort-icon.active { opacity: 1; }
-        svg { display: block; flex-shrink: 0; }
-        
-        .modal { 
-            display: none; 
-            position: fixed; 
-            z-index: 50; 
-            left: 0; 
-            top: 0; 
-            width: 100%; 
-            height: 100%; 
-            overflow: auto; 
-            background: rgba(0, 0, 0, 0.6);
-            backdrop-filter: blur(4px);
-        }
-        
-        .modal.active { display: flex; align-items: center; justify-content: center; }
-        
-        .modal-content {
-            background: rgba(255, 255, 255, 0.98);
-            backdrop-filter: blur(10px);
-            margin: auto;
-            padding: 0;
-            border-radius: 1rem;
-            width: 96%;
-            max-width: 90%;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 20px 60px 0 rgba(31, 38, 135, 0.5),
-                        inset 0 1px 0 0 rgba(255, 255, 255, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.18);
-        }
-
-        @media (max-width: 640px) {
-            .modal-content {
-                width: 100%;
-                max-width: 100%;
-                border-radius: 1rem 1rem 0 0;
-                margin: auto 0 0 0;
-                max-height: 92vh;
-            }
-            .modal { align-items: flex-end; }
-        }
-
-        .modal-header {
-            padding: 1rem;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-            flex-shrink: 0;
-        }
-
-        @media (min-width: 640px) {
-            .modal-header { padding: 1.5rem; }
-        }
-        
-        .modal-table-container {
-            flex: 1;
-            overflow-y: auto;
-            min-height: 0;
-            padding: 0 1.5rem 1.5rem 1.5rem;
-        }
-        
-        .modal-table-container table {
-            width: 100%;
-        }
-        
-        .modal-table-container thead {
-            position: sticky;
-            top: 0;
-            z-index: 10;
-            background: rgba(0, 0, 0, 0.98);
-            backdrop-filter: blur(10px);
-        }
-        
-        body.modal-open {
-            overflow: hidden;
-        }
-
-        /* Mobile: full-screen sheet modals */
-        @media (max-width: 640px) {
-            #statusDetailsModal .modal-content,
-            #courseModal .modal-content,
-            #userModal .modal-content,
-            #chartModal .modal-content {
-                width: 100% !important;
-                max-width: 100% !important;
-                border-radius: 1rem 1rem 0 0;
-                margin: auto 0 0 0;
-                max-height: 92vh;
-            }
-            #statusDetailsModal,
-            #courseModal,
-            #userModal,
-            #chartModal {
-                align-items: flex-end;
-            }
-            #chartModalContent { min-height: 260px; }
-            .modal-header h2 { font-size: 1rem; }
-            .modal-table-container { padding: 0 0.75rem 0.75rem 0.75rem; }
-            .modal-table-container th,
-            .modal-table-container td { padding: 0.5rem 0.5rem; font-size: 0.75rem; }
-        }
-        
-        .chart-controls {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            z-index: 10;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .toggle-btn, .icon-btn {
-            height: 26px;
-            padding: 0 8px;
-            font-size: 11px;
-            line-height: 1;
-            border-radius: 6px;
-            border: 1px solid rgba(209, 213, 219, 0.5);
-            background: rgba(255, 255, 255, 0.9);
-            backdrop-filter: blur(10px);
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .icon-btn {
-            width: 26px;
-            padding: 0;
-        }
-
-        .toggle-btn:hover, .icon-btn:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-        }
-
-        .toggle-btn.active {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-color: transparent;
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-        }
-
-        .icon-btn:hover {
-            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
-        }
-        
-        .tab-btn { 
-            transition: all 0.3s ease;
-            position: relative;
-        }
-        
-        .tab-btn.active { 
-            color: #667eea;
-            border-color: #667eea;
-            font-weight: 600;
-        }
-        
-        .tab-btn.active::after {
-            content: '';
-            position: absolute;
-            bottom: -2px;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-            border-radius: 2px 2px 0 0;
-        }
-        
-        .tab-content { display: block; }
-        .tab-content.hidden { display: none; }
-        
-        /* KPI Card Icons with gradient backgrounds */
-        .bg-blue-100 { 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        }
-        .bg-green-100 { 
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
-        }
-        .bg-purple-100 { 
-            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%) !important;
-        }
-        .bg-yellow-100 { 
-            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
-        }
-        
-        .bg-blue-100 svg, .bg-green-100 svg, .bg-purple-100 svg, .bg-yellow-100 svg {
-            color: white !important;
-        }
-        
-        /* Button styling */
-        button.bg-blue-600 {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-            transition: all 0.3s ease;
-        }
-        
-        button.bg-blue-600:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
-        }
-        
-        /* Table row hover effect */
-        tbody tr:hover {
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%) !important;
-            transform: translateX(2px);
-            transition: all 0.2s ease;
-        }
-        
-        /* Scrollbar styling */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-        
-        ::-webkit-scrollbar-track {
-            background: rgba(241, 245, 249, 0.5);
-            border-radius: 4px;
-        }
-        
-        ::-webkit-scrollbar-thumb {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 4px;
-        }
-        
-        ::-webkit-scrollbar-thumb:hover {
-            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
-        }
-
-        /* KPI tiles: responsive 1 / 2 / 4 / 8 per row.
-           Defined here because the purged Tailwind build ships neither
-           md:grid-cols-4 nor xl:grid-cols-8 (why it was stuck at 2-up). */
+        /* KPI tiles: 1 / 2 / 3 / 6 per row (custom because the purged Tailwind
+           build lacks the responsive grid-cols utilities needed here). */
         .kpi-grid {
             display: grid;
             grid-template-columns: repeat(1, minmax(0, 1fr));
-            gap: 0.6rem;
+            gap: .6rem;
         }
-        .kpi-grid > .card { padding: 0.85rem; }
-        @media (min-width: 480px) {
-            .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        }
-        @media (min-width: 768px) {
-            .kpi-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; }
-        }
-        @media (min-width: 1280px) {
-            .kpi-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 0.55rem; }
-            .kpi-grid > .card { padding: 0.7rem; }
-        }
+        @media (min-width: 480px)  { .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media (min-width: 768px)  { .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        @media (min-width: 1280px) { .kpi-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 
-        /* Wider page container so the tiles reclaim the big left/right margins. */
+        /* Wider page container so charts and tables get the space. */
         .page-wrap { max-width: 92rem; }
     </style>
 </head>
@@ -548,13 +47,15 @@
                         <span class="badge-dot"></span>
                         <span class="badge-text" id="fy-badge">FY —</span>
                     </div>
+                    {% if role == 'superadmin' %}
                     <a href="{{ url_for('index') }}" class="settings-btn" title="Back to Course Dashboard">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
                         </svg>
                         <span>Dashboard</span>
                     </a>
-                    {% if username == 'admin' %}
+                    {% endif %}
+                    {% if role in ['admin', 'superadmin'] %}
                     <a href="{{ url_for('settings') }}" class="settings-btn">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
@@ -587,10 +88,21 @@
                         <p class="text-xs text-gray-500" id="fy-scope-note">Analysing assignments created in this financial year</p>
                     </div>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2">
+                    <div class="min-w-0 mr-1 hidden sm:block text-right">
+                        <p class="text-xs font-medium text-gray-600 leading-tight" id="cache-status-text">Loading data status…</p>
+                        <p class="text-xs text-gray-500" id="cache-age-text"></p>
+                    </div>
                     <select id="fy-select" onchange="onFyChange(this.value)"
                         class="text-sm sm:text-base font-semibold text-gray-800 bg-white border-2 border-indigo-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 shadow-sm cursor-pointer">
                     </select>
+                    <button type="button" id="refresh-btn" onclick="refreshData()"
+                        class="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg id="refresh-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                        <span id="refresh-text" class="text-xs">Get Latest Data</span>
+                    </button>
                 </div>
             </div>
         </div>
@@ -601,9 +113,9 @@
         </div>
 
         <div id="empty-state" class="hidden text-center py-16">
-            <svg class="w-16 h-16 mx-auto text-white/70 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-            <p class="text-lg font-semibold text-white drop-shadow">No assignments in this financial year</p>
-            <p class="text-sm text-white/80 mt-1">Pick another financial year above, or create assignments in Settings.</p>
+            <svg class="w-16 h-16 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            <p class="text-lg font-semibold text-gray-700">No assignments in this financial year</p>
+            <p class="text-sm text-gray-500 mt-1">Pick another financial year above, or create assignments in Settings.</p>
         </div>
 
         <div id="dashboard" class="hidden">
@@ -649,22 +161,6 @@
                         <div><p class="text-xs sm:text-sm font-medium text-gray-600">Unique Users</p>
                             <p id="kpi-users" class="text-2xl sm:text-3xl font-bold text-gray-900 mt-1 sm:mt-2">-</p></div>
                         <div class="bg-green-100 p-2 sm:p-3 rounded-full"><svg class="w-5 h-5 sm:w-8 sm:h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg></div>
-                    </div>
-                </div>
-                <div class="card p-3 sm:p-6">
-                    <div class="flex items-center justify-between">
-                        <div><p class="text-xs sm:text-sm font-medium text-gray-600">Stale Completions</p>
-                            <p id="kpi-stale" class="text-2xl sm:text-3xl font-bold text-gray-900 mt-1 sm:mt-2">-</p>
-                            <p class="text-[10px] sm:text-xs text-gray-400 mt-0.5">completed before assignment</p></div>
-                        <div class="bg-yellow-100 p-2 sm:p-3 rounded-full" style="background:linear-gradient(135deg,#ef4444 0%,#b91c1c 100%)!important;"><svg class="w-5 h-5 sm:w-8 sm:h-8" style="color:#fff" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></div>
-                    </div>
-                </div>
-                <div class="card p-3 sm:p-6">
-                    <div class="flex items-center justify-between">
-                        <div class="min-w-0"><p class="text-xs sm:text-sm font-medium text-gray-600">Most-Assigned Course</p>
-                            <p id="kpi-most-course" class="text-sm sm:text-base font-bold text-gray-900 mt-1 sm:mt-2 truncate">-</p>
-                            <p id="kpi-most-count" class="text-[10px] sm:text-xs text-gray-400 mt-0.5"></p></div>
-                        <div class="bg-purple-100 p-2 sm:p-3 rounded-full flex-shrink-0"><svg class="w-5 h-5 sm:w-8 sm:h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path></svg></div>
                     </div>
                 </div>
             </div>
@@ -713,7 +209,7 @@
                     </div>
                     <button onclick="exportCurrentTab()" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 mb-1">Export CSV</button>
                 </div>
-                <p class="text-xs text-gray-500 mb-3" id="table-hint">Tip: click an assignment row to see per-user progress (including stale completions).</p>
+                <p class="text-xs text-gray-500 mb-3" id="table-hint">Tip: click an assignment row to see per-user progress (completions before the assignment date count as Not Started).</p>
                 <div class="overflow-x-auto">
                     <div id="table-assignments" class="tab-panel"></div>
                     <div id="table-courses" class="tab-panel hidden"></div>
@@ -790,14 +286,14 @@
         </div>
     </div>
 
-    <footer class="fixed left-0 right-0 bottom-0 bg-black/20 backdrop-blur text-white/80 text-xs text-center py-2 z-40">
-        Assignment analytics &middot; completion measured against assigned users &middot; stale completions excluded
+    <footer class="app-footer">
+        <p>Assignment analytics &middot; completion measured against assigned users &middot; completions before the assignment date count as Not Started</p>
     </footer>
 
     <script>
         // ── State ────────────────────────────────────────────────────────────
-        const STATUS_COLORS = { completed:'#10b981', in_progress:'#f59e0b', not_started:'#94a3b8', stale:'#ef4444' };
-        const STATUS_LABELS = { completed:'Completed', in_progress:'In Progress', not_started:'Not Started', stale:'Stale' };
+        const STATUS_COLORS = { completed:'#10b981', in_progress:'#f59e0b', not_started:'#94a3b8' };
+        const STATUS_LABELS = { completed:'Completed', in_progress:'In Progress', not_started:'Not Started' };
         let summary = null;
         let selectedFy = 'current';
         let currentTab = 'assignments';
@@ -822,7 +318,6 @@
                 {key:'completed', label:'Done', type:'num'},
                 {key:'in_progress', label:'In Prog', type:'num'},
                 {key:'not_started', label:'Not Started', type:'num'},
-                {key:'stale', label:'Stale', type:'num'},
                 {key:'completion_rate', label:'Completion %', type:'num', bar:true},
             ],
             courses: [
@@ -830,7 +325,6 @@
                 {key:'assignment_count', label:'# Assignments', type:'num'},
                 {key:'total_enrollments', label:'Enrollments', type:'num'},
                 {key:'completed', label:'Done', type:'num'},
-                {key:'stale', label:'Stale', type:'num'},
                 {key:'completion_rate', label:'Completion %', type:'num', bar:true},
                 {key:'latest_assignment_date', label:'Latest Assignment', type:'str', fmt:shortDate},
             ],
@@ -842,11 +336,22 @@
                 {key:'completed', label:'Done', type:'num'},
                 {key:'in_progress', label:'In Prog', type:'num'},
                 {key:'not_started', label:'Not Started', type:'num'},
-                {key:'stale', label:'Stale', type:'num'},
                 {key:'completion_rate', label:'Completion %', type:'num', bar:true},
             ],
         };
         const ROW_CLICK = { assignments:(row)=>viewAssignment(row.id), users:(row)=>viewUser(row.email), courses:null };
+
+        // Defensive: force the three buckets to reconcile with the enrolled total
+        // so completed + in_progress + not_started == total, regardless of which
+        // engine version served the payload. A pre-assignment ("stale") completion
+        // is neither completed nor in-progress, so it lands in Not Started — and an
+        // older engine that still reports stale as its own bucket can no longer
+        // produce an all-zero pie for an assignment that has enrollments.
+        function normalizeBuckets(s){
+            (s.assignments||[]).forEach(a=>{ a.not_started = Math.max(0, (a.total||0) - (a.completed||0) - (a.in_progress||0)); });
+            (s.courses||[]).forEach(c=>{ c.not_started = Math.max(0, (c.total_enrollments||0) - (c.completed||0) - (c.in_progress||0)); });
+            (s.users||[]).forEach(u=>{ u.not_started = Math.max(0, (u.assignments_count||0) - (u.completed||0) - (u.in_progress||0)); });
+        }
 
         // ── Load + render ────────────────────────────────────────────────────
         async function loadSummary(fy){
@@ -855,6 +360,7 @@
                 const res = await fetch('/api/assignments-summary?fy=' + encodeURIComponent(fy));
                 if(!res.ok) throw new Error('HTTP ' + res.status);
                 summary = await res.json();
+                normalizeBuckets(summary);
                 selectedFy = (summary.selected === 'all') ? 'all' : summary.selected;
                 populateFySelect();
                 document.getElementById('fy-badge').textContent = 'FY ' + summary.selected_label.replace('All Financial Years','ALL');
@@ -875,7 +381,7 @@
                 renderTable('assignments'); renderTable('courses'); renderTable('users');
             } catch(err){
                 document.getElementById('loading').innerHTML =
-                    '<div class="text-red-100 bg-red-600/40 rounded-lg p-4 inline-block"><p class="font-semibold">Failed to load analytics</p><p class="text-sm mt-1">'+h(err.message)+'</p></div>';
+                    '<div class="text-red-700 bg-red-50 rounded-lg p-4 inline-block"><p class="font-semibold">Failed to load analytics</p><p class="text-sm mt-1">'+h(err.message)+'</p></div>';
             }
         }
 
@@ -902,15 +408,6 @@
             document.getElementById('kpi-completion').textContent = k.overall_completion_rate + '%';
             document.getElementById('kpi-courses').textContent = k.courses_covered;
             document.getElementById('kpi-users').textContent = k.unique_users;
-            document.getElementById('kpi-stale').textContent = k.stale_completions;
-            if(k.most_assigned_course){
-                document.getElementById('kpi-most-course').textContent = k.most_assigned_course.course_name;
-                document.getElementById('kpi-most-course').title = k.most_assigned_course.course_name;
-                document.getElementById('kpi-most-count').textContent = k.most_assigned_course.count + ' assignment' + (k.most_assigned_course.count!==1?'s':'');
-            } else {
-                document.getElementById('kpi-most-course').textContent = '—';
-                document.getElementById('kpi-most-count').textContent = '';
-            }
         }
 
         // ── Charts ───────────────────────────────────────────────────────────
@@ -926,7 +423,7 @@
                 xAxis:{type:'value',minInterval:1},
                 yAxis:{type:'category',data:data.map(d=>d.course_name),axisLabel:{width:180,overflow:'truncate',fontSize:11}},
                 series:[{type:'bar',data:data.map(d=>d.assignment_count),barMaxWidth:22,
-                    itemStyle:{borderRadius:[0,6,6,0],color:new echarts.graphic.LinearGradient(0,0,1,0,[{offset:0,color:'#667eea'},{offset:1,color:'#764ba2'}])},
+                    itemStyle:{borderRadius:[0,6,6,0],color:new echarts.graphic.LinearGradient(0,0,1,0,[{offset:0,color:'#14b8a6'},{offset:1,color:'#06b6d4'}])},
                     label:{show:true,position:'right',fontSize:11,formatter:'{c}'}}]
             };
         }
@@ -938,8 +435,8 @@
         }
 
         function statusTotals(){
-            const t = {completed:0,in_progress:0,not_started:0,stale:0};
-            summary.assignments.forEach(a=>{ t.completed+=a.completed; t.in_progress+=a.in_progress; t.not_started+=a.not_started; t.stale+=a.stale; });
+            const t = {completed:0,in_progress:0,not_started:0};
+            summary.assignments.forEach(a=>{ t.completed+=a.completed; t.in_progress+=a.in_progress; t.not_started+=a.not_started; });
             return t;
         }
         function renderStatus(){
@@ -947,7 +444,7 @@
             if(charts.status) charts.status.dispose();
             charts.status = echarts.init(dom);
             const t = statusTotals();
-            const data = ['completed','in_progress','not_started','stale'].map(s=>({name:STATUS_LABELS[s],value:t[s],itemStyle:{color:STATUS_COLORS[s]}}));
+            const data = ['completed','in_progress','not_started'].map(s=>({name:STATUS_LABELS[s],value:t[s],itemStyle:{color:STATUS_COLORS[s]}}));
             charts.status.setOption({
                 tooltip:{trigger:'item',formatter:'{b}: {c} ({d}%)'},
                 legend:{bottom:0,left:'center',textStyle:{fontSize:11}},
@@ -965,7 +462,7 @@
             return {
                 grid:{left:8,right:40,top:10,bottom:10,containLabel:true},
                 tooltip:{trigger:'axis',axisPointer:{type:'shadow'},
-                    formatter:p=>{const d=data[p[0].dataIndex];return h(d.title)+'<br/>Completion: <b>'+d.completion_rate+'%</b><br/>'+d.completed+' of '+d.total+' done · '+d.stale+' stale';}},
+                    formatter:p=>{const d=data[p[0].dataIndex];return h(d.title)+'<br/>Completion: <b>'+d.completion_rate+'%</b><br/>'+d.completed+' of '+d.total+' done';}},
                 xAxis:{type:'value',max:100,axisLabel:{formatter:'{value}%'}},
                 yAxis:{type:'category',data:data.map(d=>d.title),axisLabel:{width:220,overflow:'truncate',fontSize:10}},
                 series:[{type:'bar',data:data.map(d=>d.completion_rate),barMaxWidth:18,
@@ -997,9 +494,13 @@
         }
 
         // ── Tables ───────────────────────────────────────────────────────────
-        function statusBadge(status, stale){
-            const s = stale ? 'stale' : status;
-            return '<span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold text-white" style="background:'+STATUS_COLORS[s]+'">'+STATUS_LABELS[s]+'</span>';
+        function statusBadge(status){
+            // Stale prior completions are classified as not_started by the engine,
+            // so the badge simply reflects the status (Completed / In Progress / Not Started).
+            // Fall back to not_started for any unknown status (e.g. a legacy 'stale'
+            // value from an older engine) so the badge never renders "undefined".
+            const s = STATUS_LABELS[status] ? status : 'not_started';
+            return '<span class="status-pill text-white" style="background:'+STATUS_COLORS[s]+'">'+STATUS_LABELS[s]+'</span>';
         }
         function barCell(v){
             const color = v>=75?'#10b981':v>=40?'#f59e0b':'#ef4444';
@@ -1061,7 +562,7 @@
                 else { btn.classList.remove('active','text-blue-600','border-blue-600'); btn.classList.add('text-gray-500','border-transparent'); }
             });
             const hints = {
-                assignments:'Tip: click an assignment row to see per-user progress (including stale completions).',
+                assignments:'Tip: click an assignment row to see per-user progress (completions before the assignment date count as Not Started).',
                 courses:'Courses aggregated across all assignments in the selected financial year.',
                 users:'Tip: click a user row to see their assignment-by-assignment progress.'
             };
@@ -1111,11 +612,11 @@
                 document.getElementById('assignmentModalSub').textContent =
                     d.course_name + ' · created ' + shortDate(d.created_date) + ' · FY ' + d.fy_label + ' · deadline ' + shortDate(d.deadline);
                 document.getElementById('assignmentModalStats').innerHTML =
-                    statChip('Enrolled', d.total, '#667eea') + statChip('Completed', d.completed, STATUS_COLORS.completed) +
+                    statChip('Enrolled', d.total, '#0d9488') + statChip('Completed', d.completed, STATUS_COLORS.completed) +
                     statChip('In Progress', d.in_progress, STATUS_COLORS.in_progress) + statChip('Not Started', d.not_started, STATUS_COLORS.not_started) +
-                    statChip('Stale', d.stale, STATUS_COLORS.stale) + statChip('Completion', d.completion_rate+'%', '#111827');
+                    statChip('Completion', d.completion_rate+'%', '#111827');
                 const users = d.users.slice().sort((a,b)=>{
-                    const order = {completed:0,in_progress:1,stale:2,not_started:3};
+                    const order = {completed:0,in_progress:1,not_started:2};
                     return order[a.status]-order[b.status] || (a.name||a.email).localeCompare(b.name||b.email);
                 });
                 let html = '';
@@ -1123,9 +624,9 @@
                     html += '<tr>'+
                         '<td class="px-3 py-2 text-sm font-medium text-gray-900">'+h(u.name||u.email.split('@')[0])+ (u.untouched?' <span class="text-[10px] text-gray-400">(never opened)</span>':'') +'</td>'+
                         '<td class="px-3 py-2 text-sm text-gray-600">'+h(u.email)+'</td>'+
-                        '<td class="px-3 py-2">'+statusBadge(u.status,u.stale)+'</td>'+
+                        '<td class="px-3 py-2">'+statusBadge(u.status)+'</td>'+
                         '<td class="px-3 py-2 text-sm text-gray-600">'+u.percentage+'%</td>'+
-                        '<td class="px-3 py-2 text-sm '+(u.stale?'text-red-600':'text-gray-600')+'">'+(u.completion_date?shortDate(u.completion_date)+(u.stale?' (stale)':''):'—')+'</td>'+
+                        '<td class="px-3 py-2 text-sm text-gray-500">'+(u.stale?('<span class="text-gray-400">— (done '+shortDate(u.completion_date)+', before assigned)</span>'):(u.completion_date?shortDate(u.completion_date):'—'))+'</td>'+
                         '</tr>';
                 });
                 document.getElementById('assignmentModalBody').innerHTML = html;
@@ -1150,9 +651,9 @@
                         '<td class="px-3 py-2 text-sm font-medium text-gray-900">'+h(a.title)+'</td>'+
                         '<td class="px-3 py-2 text-sm text-gray-600">'+h(a.course_name)+'</td>'+
                         '<td class="px-3 py-2 text-sm text-gray-600">'+shortDate(a.created_date)+'</td>'+
-                        '<td class="px-3 py-2">'+statusBadge(a.status,a.stale)+'</td>'+
+                        '<td class="px-3 py-2">'+statusBadge(a.status)+'</td>'+
                         '<td class="px-3 py-2 text-sm text-gray-600">'+a.percentage+'%</td>'+
-                        '<td class="px-3 py-2 text-sm '+(a.stale?'text-red-600':'text-gray-600')+'">'+(a.completion_date?shortDate(a.completion_date)+(a.stale?' (stale)':''):'—')+'</td>'+
+                        '<td class="px-3 py-2 text-sm text-gray-500">'+(a.stale?('<span class="text-gray-400">— (done '+shortDate(a.completion_date)+', before assigned)</span>'):(a.completion_date?shortDate(a.completion_date):'—'))+'</td>'+
                         '</tr>';
                 });
                 if(!d.assignments.length) html = '<tr><td colspan="6" class="px-3 py-4 text-center text-gray-400">No assignments in scope</td></tr>';
@@ -1166,8 +667,70 @@
         document.querySelectorAll('.modal').forEach(m=> m.addEventListener('click', e=>{ if(e.target===m) closeModal(m.id); }));
         window.addEventListener('resize', ()=>{ Object.values(charts).forEach(c=>c&&c.resize()); if(_zoomedChart)_zoomedChart.resize(); });
 
+        // ── Cache status + refresh (same data source as the main dashboard) ──
+        async function loadCacheStatus(){
+            try {
+                const res = await fetch('/api/status');
+                if(!res.ok) return;
+                const data = await res.json();
+                const statusText = document.getElementById('cache-status-text');
+                const ageText = document.getElementById('cache-age-text');
+                const btn = document.getElementById('refresh-btn');
+                const icon = document.getElementById('refresh-icon');
+                const txt = document.getElementById('refresh-text');
+                if(data.cache && data.cache.cached){
+                    statusText.textContent = 'Showing Data as on ' + data.cache.cached_at_formatted;
+                    ageText.textContent = '(' + data.cache.cache_age_readable + ' ago)';
+                    if(data.cache.refresh_in_progress){
+                        btn.disabled = true; icon.classList.add('refresh-spinning'); txt.textContent = 'Updating Data…';
+                    } else {
+                        btn.disabled = false; icon.classList.remove('refresh-spinning'); txt.textContent = 'Get Latest Data';
+                    }
+                } else {
+                    statusText.textContent = 'Loading data…';
+                }
+            } catch(err){ console.error('Error loading cache status:', err); }
+        }
+
+        async function refreshData(){
+            const btn = document.getElementById('refresh-btn');
+            const icon = document.getElementById('refresh-icon');
+            const txt = document.getElementById('refresh-text');
+            const reset = () => { btn.disabled = false; icon.classList.remove('refresh-spinning'); txt.textContent = 'Get Latest Data'; };
+            try {
+                btn.disabled = true; icon.classList.add('refresh-spinning'); txt.textContent = 'Updating Data…';
+                const res = await fetch('/api/refresh-cache', { method: 'POST' });
+                if(!res.ok){
+                    const d = await res.json().catch(()=>({}));
+                    alert('Error: ' + (d.error || ('HTTP ' + res.status)));
+                    reset();
+                    return;
+                }
+                const poll = setInterval(async ()=>{
+                    try {
+                        const sres = await fetch('/api/status');
+                        const sdata = await sres.json();
+                        if(!sdata.cache.refresh_in_progress){
+                            clearInterval(poll);
+                            await loadSummary(selectedFy);
+                            await loadCacheStatus();
+                            reset();
+                        } else {
+                            loadCacheStatus();
+                        }
+                    } catch(e){ /* keep polling */ }
+                }, 3000);
+            } catch(err){
+                console.error('Error refreshing data:', err);
+                alert('Error refreshing data. Please try again.');
+                reset();
+            }
+        }
+
         // ── Boot ─────────────────────────────────────────────────────────────
         loadSummary('current');
+        loadCacheStatus();
+        setInterval(loadCacheStatus, 30000);
     </script>
 </body>
 </html>

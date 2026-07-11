@@ -18,11 +18,13 @@ appear in the API for that course, creates:
      earliest completion  -> all completions count as valid (clean baseline).
   2. For courses nobody has completed yet, an assignment dated ~30 days ago
      (current FY) -> 0% completion ("assigned, nobody finished").
-  3. A later "refresher" assignment for a few wide-spread courses -> completions
-     made before it become STALE, demonstrating multiple-assignments-per-course
-     and the staleness rule.
 
 Each assignment gets a descriptive title (course + date + user count).
+
+NOTE: a previous version also generated later "refresher" assignments that
+postdated real completions to demo the staleness rule. Those are no longer
+created: a completion before the assignment date is now simply Not Started, and
+the synthetic refreshers only made genuinely-completed users look non-compliant.
 
 USAGE
 -----
@@ -53,16 +55,6 @@ import assignment_analytics as aa
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_OUTPUT = os.path.join(ROOT, "data", "course_assignments.json")
-
-# Courses that get a second, later "refresher" assignment (wide completion
-# spread → demonstrates staleness + most-assignments-for-a-course). Only applied
-# if the course actually exists with completions.
-REFRESHER_COURSES = [
-    "Understanding Hazards and Risks",
-    "Understanding Safety Awareness",
-    "Safety Essentials",
-]
-REFRESHER_DATE = datetime(2025, 10, 1, 9, 0, 0)
 
 
 def load_api_data(input_path):
@@ -134,14 +126,6 @@ def build_assignments(api_data):
         else:
             created_dt = no_completion_dt
         assignments.append(make_assignment(next_id, course, emails, created_dt))
-        next_id += 1
-
-    # Refresher assignments (later date, same API users) for wide-spread courses.
-    for course in REFRESHER_COURSES:
-        info = courses.get(course)
-        if not info or not info["completion_dates"]:
-            continue
-        assignments.append(make_assignment(next_id, course, info["emails"], REFRESHER_DATE, deadline_days=45))
         next_id += 1
 
     return assignments

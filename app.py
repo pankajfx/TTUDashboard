@@ -73,10 +73,15 @@ _refresh_in_progress = False
 
 # Secure password storage (hashed, loaded from env)
 USERS = {
+    'superadmin': generate_password_hash(os.environ['SUPERADMIN_PASSWORD']),
     'admin': generate_password_hash(os.environ['ADMIN_PASSWORD']),
     'user': generate_password_hash(os.environ['USER_PASSWORD']),
 }
-USER_ROLES = {'admin': 'admin', 'user': 'user'}
+USER_ROLES = {'superadmin': 'superadmin', 'admin': 'admin', 'user': 'user'}
+# Access model:
+#   superadmin -> Dashboard + FY Analytics + Settings
+#   admin      -> FY Analytics + Settings (no Dashboard)
+#   user       -> FY Analytics only
 
 # Login rate limiting: max 10 attempts per 60 seconds per IP
 _login_attempts: dict = {}
@@ -217,14 +222,26 @@ def login_required(f):
     return decorated_function
 
 
-# Admin required decorator
+# Admin required decorator (admin and superadmin)
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'logged_in' not in session:
             return redirect(url_for('login'))
-        if session.get('role') != 'admin':
+        if session.get('role') not in ('admin', 'superadmin'):
             return jsonify({'error': 'Admin access required'}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+# Superadmin required decorator (dashboard APIs)
+def superadmin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'logged_in' not in session:
+            return redirect(url_for('login'))
+        if session.get('role') != 'superadmin':
+            return jsonify({'error': 'Superadmin access required'}), 403
         return f(*args, **kwargs)
     return decorated_function
 
@@ -323,7 +340,10 @@ def login():
             session['username'] = username
             session['role'] = USER_ROLES.get(username, 'user')
             session['_last_active'] = datetime.now().isoformat()
-            return redirect(url_for('index'))
+            # Superadmin lands on the Dashboard; admin/user land on FY Analytics
+            if session['role'] == 'superadmin':
+                return redirect(url_for('index'))
+            return redirect(url_for('assignments_dashboard'))
         else:
             _record_failed_login(username)
             logger.warning(f"Failed login attempt for user '{username}' from {ip}")
@@ -337,9 +357,13 @@ def logout():
     return redirect(url_for('login'))
 
 @app.route('/settings')
-@admin_required
+@login_required
 def settings():
-    return render_template('settings.html', username=session.get('username'))
+    # Settings page is for admin and superadmin; others go to FY Analytics
+    if session.get('role') not in ('admin', 'superadmin'):
+        return redirect(url_for('assignments_dashboard'))
+    return render_template('settings.html', username=session.get('username'),
+                           role=session.get('role'))
 
 # API endpoints for settings
 @app.route('/api/settings/users', methods=['GET'])
@@ -1023,8 +1047,14 @@ def bulk_upload_assignment():
 @app.route('/')
 @login_required
 def index():
-    return render_template('index.html', username=session.get('username'))
+    # Dashboard is superadmin-only; everyone else lands on FY Analytics
+    if session.get('role') != 'superadmin':
+        return redirect(url_for('assignments_dashboard'))
+    return render_template('index.html', username=session.get('username'),
+                           role=session.get('role'))
 
+# Available to all logged-in users: the FY Analytics page shows cache
+# freshness and offers the refresh button to every role.
 @app.route('/api/status')
 @login_required
 def get_status():
@@ -1254,7 +1284,7 @@ def load_data():
             return _data_cache
 
 @app.route('/api/data')
-@login_required
+@superadmin_required
 def get_data():
     try:
         data = load_data()
@@ -1265,7 +1295,7 @@ def get_data():
         return jsonify({"error": "Failed to load data"}), 500
 
 @app.route('/api/raw-data')
-@login_required
+@superadmin_required
 def get_raw_data():
     try:
         data = load_data()
@@ -1275,7 +1305,7 @@ def get_raw_data():
         return jsonify({'error': 'Failed to load data'}), 500
 
 @app.route('/api/summary')
-@login_required
+@superadmin_required
 def get_summary():
     try:
         print(f"Loading data (USE_LOCAL_DATA={USE_LOCAL_DATA})")
@@ -1399,7 +1429,7 @@ def get_summary():
         return jsonify({"error": "Failed to load summary"}), 500
 
 @app.route('/api/course/<path:course_name>')
-@login_required
+@superadmin_required
 def get_course_details(course_name):
     try:
         data = load_data()
@@ -1431,7 +1461,7 @@ def get_course_details(course_name):
         return jsonify({"error": "Failed to load course details"}), 500
 
 @app.route('/api/user/<path:user_email>')
-@login_required
+@superadmin_required
 def get_user_details(user_email):
     try:
         data = load_data()
@@ -1483,7 +1513,8 @@ def _load_assignments():
 @app.route('/assignments-dashboard')
 @login_required
 def assignments_dashboard():
-    return render_template('assignments.html', username=session.get('username'))
+    return render_template('assignments.html', username=session.get('username'),
+                           role=session.get('role'))
 
 
 @app.route('/api/assignments-summary')
