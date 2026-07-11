@@ -1,15 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Node (dev-only Tailwind build tooling, not used in production)
+node_modules/
+package-lock.json
+package.json
+
+# Environment
+.env
+
+# Logs
+logs/
+
+# Data / runtime
 data/api_cache.json
 data/course_assignments.json
 data/users.json
-.env
-node_modules/
-__pycache__
-__pycache__/app.cpython-311.pyc
-package-lock.json
-.gitignore
-package.json
-__pycache__/app.cpython-311.pyc
-logs/
-__pycache__/app.cpython-311.pyc
-.gitignore
-__pycache__/email_service.cpython-311.pyc
+data/course_assignments.backup.*.json
