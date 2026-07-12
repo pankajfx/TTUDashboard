@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import json
 import os
 import logging
+import mimetypes
 import re
 import uuid
 import secrets
@@ -24,6 +25,14 @@ from dotenv import load_dotenv
 from logging.handlers import RotatingFileHandler
 
 load_dotenv()
+
+# On Windows, mimetypes seeds itself from the registry, where HKCR\.js is often
+# clobbered to text/plain by other installers. Browsers then refuse to execute
+# our static JS under strict MIME checking, so pin the correct types here.
+mimetypes.add_type('text/javascript', '.js')
+mimetypes.add_type('text/css', '.css')
+mimetypes.add_type('image/svg+xml', '.svg')
+mimetypes.add_type('application/json', '.json')
 
 # Configure logging — console + persistent rotating file (audit trail).
 # Attach handlers directly to the root logger and clear any pre-existing ones
@@ -386,6 +395,10 @@ def sync_users_from_api():
     except Exception as e:
         logger.error(f"Error syncing users from API: {e}")
         return 0
+
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
