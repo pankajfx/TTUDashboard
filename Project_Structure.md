@@ -54,6 +54,25 @@ A Flask-based internal dashboard for tracking **Tata Tomorrow University (TTU)**
 
 > **Storage note:** As of v1.3 the app reads/writes users, course assignments, and the API cache through `db.py` (SQLite at `data/app.db`). `db.init_db()` runs at import time in `app.py`, creating the DB + tables on first boot and, only when the DB file is brand-new, bootstrapping it once from the legacy `data/*.json` files. After that the JSON files are ignored. The legacy Tailwind build (`tailwind.min.css`, Node tooling) is no longer used — styling is the committed `static/css/modern.css`.
 
+### SQLite Schema (`data/app.db`)
+
+| Table | Purpose |
+|-------|---------|
+| `users` | The user registry. Email + name + **department, location, job_role** + a **`tracked`** flag ([§6](#6-business-logic--user-management)) |
+| `assignments` | Course assignments (users, deadline, validity window) |
+| `api_cache` | The warm API snapshot (single row) |
+| `completion_history` | Append-only ledger of every completion date ever observed — the API overwrites its single latest date per (course, user), so prior cycles survive only here |
+| `completion_notifications` | One row per (assignment, user) congratulations email. PK `(assignment_id, email)` doubles as the claim lock that makes sending **exactly-once** ([§8](#automatic-completion-notifications)) |
+| `notification_baseline` | Marks an assignment as "being watched" — completions predating the baseline are suppressed, so enabling the feature never blasts old completions |
+
+**Schema migrations are automatic and idempotent.** `db._migrate_schema()` runs on every
+boot: it reads `PRAGMA table_info(users)` and `ALTER TABLE`s in any column added since the
+table first shipped (`CREATE TABLE IF NOT EXISTS` is a no-op on an existing DB, so new
+columns must be added explicitly). On an existing `app.db`, `tracked` is backfilled as
+`source = 'api' → 0, else 1` — i.e. anything the admin put there is roster, anything that
+only ever came from the API sync is untracked. **No manual migration command; just deploy
+the new code over the existing `app.db`.**
+
 ### File Structure
 
 ```
@@ -360,50 +379,96 @@ sm (<768px): 1 col
 
 ## 6. Business Logic — User Management
 
-All user data lives in `data/users.json`:
+Users live in the `users` table (SQLite, via `db.py`). Each row is an email plus an
+optional **profile** and a **tracked** flag:
 
 ```json
 {
-  "users": [
-    {
-      "email": "user@example.com",
-      "name": "John Doe",
-      "source": "api | manual",
-      "added_date": "2025-12-05 14:30:00"
-    }
-  ]
+  "email": "user@example.com",
+  "name": "John Doe",
+  "source": "api | manual | upload",
+  "added_date": "2025-12-05 14:30:00",
+  "department": "Safety",
+  "location": "Mumbai",
+  "job_role": "Engineer",
+  "tracked": true,
+  "updated_date": "2026-07-12 11:02:00"
 }
 ```
 
+> The TCS iON API only ever supplies **email + name**. Department, location and role
+> exist nowhere upstream — they come exclusively from the roster the admin uploads.
+
+### Tracked vs Untracked — the authentic roster
+
+| | Tracked (`tracked = 1`) | Untracked (`tracked = 0`) |
+|---|---|---|
+| **Who** | Uploaded on a roster, added by hand, or explicitly assigned a course | Seen in the API and never uploaded |
+| **Profile** | Department / location / role (as supplied) | None — the API has no such fields |
+| **Analytics** | Always counted | Counted only while *Include untracked users* is ticked |
+| **Dimension bucket** | Their department / location / role, or `Unspecified` if the roster left the cell blank | The `Untracked` bucket |
+
+The uploaded roster is the **authentic source of users**. Anyone the API reports who
+was never uploaded is classified untracked **automatically**, matched on email
+(case-insensitive). No manual step marks them.
+
 ### API Sync (`sync_users_from_api`)
 
-Called automatically on every `GET /api/settings/users` request:
+Called automatically on every `GET /api/settings/users` request. It only ever *adds*:
 1. Load current API data via `load_data()`
 2. Extract unique `User_Mail_ID` + `Participant_Name` pairs
-3. Compare against existing `users.json` (set of lowercase emails)
-4. Append only **new** users with `source: "api"`
-5. Save if any additions were made
+3. Compare against the registry **case-insensitively** (so `A@x.com` and `a@x.com` never become two rows)
+4. Append only **new** users with `source: "api"`, `tracked: false`, and an empty profile
+5. **Existing users are never touched** — a roster-supplied profile survives every sync
+
+### Roster Upload (`POST /api/settings/users/bulk-upload`)
+
+The upload *augments*, it does not replace. Column order is free; only `Email` is required.
+
+```
+| Email | Name | Department | Location | Role |
+```
+
+Accepted headings (case-insensitive) include `Email`/`E-Mail`/`Email Address`,
+`Department`/`Dept`, `Location`/`Site`/`City`, `Role`/`Designation`/`Job Title`.
+A sheet with **no** recognisable header row falls back to the legacy positional
+layout: `A=Email, B=Name, C=Department, D=Location, E=Role`.
+
+Per email in the sheet:
+- **Already in the registry** (including an API-synced user) → augmented in place with
+  the supplied fields, promoted to `tracked = 1`, `source = 'upload'`. A **blank cell
+  never wipes** a value already stored (`COALESCE(NULLIF(?, ''), col)`).
+- **Unknown** → inserted as a new tracked user.
+- **Absent from the sheet** → left exactly as it was. An API-only user stays untracked
+  with no profile. *This is what makes untracked users a real category rather than an
+  accident.*
+
+Duplicate rows within one sheet: last row wins.
 
 ### Duplicate Validation
 
-Both client-side (JS) and server-side (Flask) check for duplicate emails (case-insensitive):
-- Server returns **HTTP 409** with `{ "error": "User with email X already exists" }`
-- Client highlights the email field in red and blocks submission
+Server and client check for duplicate emails (case-insensitive) — but an **untracked**
+match is **not** a duplicate. It is the same person, synced in from the API and waiting
+for a profile, so adding them **promotes** the existing row onto the roster
+(`{"promoted": true}`) instead of returning 409. A *tracked* match still returns
+**HTTP 409**.
 
 ### User Addition Methods
 
 | Method | Route | Notes |
 |--------|-------|-------|
-| Manual entry | `POST /api/settings/users` | Single email, duplicate-checked |
-| Excel bulk upload | `POST /api/settings/users/bulk-upload` | Column A = emails; skips duplicates, reports invalid |
-| API auto-sync | (via `sync_users_from_api`) | Runs on settings page load |
+| Manual entry | `POST /api/settings/users` | Email + optional name/department/location/role → tracked |
+| Excel roster upload | `POST /api/settings/users/bulk-upload` | Augments existing users, inserts new ones → tracked |
+| Bulk assignment upload | `POST /api/settings/assignments/bulk-upload` | Auto-creates any unknown assignee → tracked, empty profile |
+| API auto-sync | (via `sync_users_from_api`) | Runs on settings page load → **untracked** |
 
-### Real-Time Search (Settings Page)
+### Real-Time Search & Filter (Settings Page)
 
 - Client-side JS filters the rendered user list on every keystroke
-- Substring match against both email and name (case-insensitive)
-- Shows "Showing X of Y users" count; empty result shows "No users found" message
-- Clearing the field restores the full list
+- Substring match across email, name, **department, location and role** (case-insensitive)
+- A **Tracked / Untracked / All** dropdown narrows the list further; both constraints apply together
+- Each row shows a `Tracked` or `Untracked` badge plus chips for whatever profile values exist
+- Header line reports `N tracked (M with profile), K untracked`
 
 ---
 
@@ -429,16 +494,27 @@ Assignment records live in `data/course_assignments.json`:
 ### Creating an Assignment (`POST /api/settings/assignments`)
 
 ```
-Request body: { course_name, user_emails[], deadline, notify_email }
+Request body: { course_name, user_emails[], deadline?, effective_from?, effective_to?, notify_email }
 
-1. Validate required fields
-2. Append assignment record (id = len + 1) to assignments.json
-3. If notify_email=true:
-     Build email_to_name map from users.json
+1. Validate required fields (course_name + user_emails; deadline is OPTIONAL)
+2. deadline omitted/blank → default to creation date + DEFAULT_DEADLINE_DAYS (15 days)
+3. Append assignment record (id = max(existing ids) + 1)
+4. Baseline it for completion notifications (see §8) — users already complete
+   right now are recorded, NOT emailed
+5. If notify_email=true:
+     Build email_to_name map from the users table
      _dispatch_assignment_emails() → background ThreadPoolExecutor job
      Returns job_id for polling
-4. Return 201 with assignment + email_job_id
+6. Return 201 with assignment + email_job_id + deadline_defaulted flag
 ```
+
+### Default Deadline (15 days)
+
+`DEFAULT_DEADLINE_DAYS = 15` in `app.py`. If the admin leaves the deadline field
+blank — on the manual form **or** the bulk-upload form — the server sets it to
+**15 days from the assignment's creation date** (`YYYY-MM-DD`, the same shape used
+everywhere else). The response carries `deadline_defaulted: true` and the UI reports
+the date it landed on. The form shows the resolved date as a hint before submission.
 
 ### Assignment Detail View (`GET /api/settings/assignments/<id>`)
 
@@ -460,6 +536,12 @@ Users not found in API data are shown as `{ untouched: true, completion_status: 
 2. `added_users` = new − old → send assignment emails (background)
 3. `removed_users` = old − new → send removal emails (background)
 4. Save immediately; emails fire in background threads
+5. Reconcile the completion-notification ledger (`sync_assignment_notifications`):
+   - an **added** user who has *already* completed the course inside the window is
+     recorded as `pre_existing` — they finished before they were assigned it, so there
+     is no completion *event* to congratulate (same rule as the creation baseline)
+   - a **removed** user's ledger row is dropped, so if they are re-added later and then
+     complete, that genuinely new completion is still announced
 
 ### Sending Reminders (`POST /api/settings/assignments/<id>/remind`)
 
@@ -494,6 +576,44 @@ Poll job progress with `GET /api/email-job/<job_id>`. Returns:
 
 ---
 
+### FY / Quarter / Dimension Analytics (`/assignments-dashboard`)
+
+Powered by `assignment_analytics.build_summary()`. All figures measure progress against
+**everyone assigned**, applying the validity-window staleness rule (§7).
+
+**Scope selection — top view:**
+
+| Scope | `periods` strip shows | `quarter` param |
+|-------|----------------------|-----------------|
+| One financial year | **Q1 Apr–Jun · Q2 Jul–Sep · Q3 Oct–Dec · Q4 Jan–Mar** + a *Full Year* card | `1`–`4` narrows every figure to that quarter |
+| All financial years | One card per FY | ignored |
+
+Each period card shows its completion %, assignment count and `done/enrolled`. Clicking a
+quarter narrows the whole page to it; clicking it again returns to the full year. The strip
+is rendered **outside** the dashboard container, so an empty quarter still leaves you
+something to click back out of. The *Full Year* card is computed from the period rows, not
+from the KPIs — the KPIs describe the *selected* quarter.
+
+**Dimension breakdown** — a tabbed card (**By Department / By Location / By Role**) with a
+stacked status bar chart and a sortable, CSV-exportable table. One enrollment (a user in an
+assignment) contributes to one bucket in each dimension:
+
+- a value from the roster (`Safety`, `Mumbai`, `Engineer`, …)
+- `Unspecified` — tracked, but the roster left that cell blank
+- `Untracked` — never uploaded at all (only present while untracked users are included)
+
+**Include-untracked switch** — a checkbox on the period strip (`?include_untracked=`).
+When off, every enrollment belonging to an untracked user is dropped **up front**, before
+any aggregation, so KPIs, charts, per-assignment rows, the tables and the dimension
+breakdown are all computed from the same population and cannot disagree. The drill-down
+modals inherit the same setting so a modal always matches the row that opened it.
+
+> Before any roster is uploaded, **every** user is untracked — so unchecking the box zeroes
+> the page. The dashboard detects this (`tracked_users == 0`) and shows an explanatory
+> banner rather than a wall of zeros.
+
+---
+
 ## 8. Email Notification System
 
 **Module:** `email_service.py`  
@@ -508,7 +628,51 @@ Poll job progress with `GET /api/email-job/<job_id>`. Returns:
 | `send_course_assignment_email` | New assignment or user added to assignment | `📚 New Course Assignment: {course}` |
 | `send_deadline_reminder_email` | Admin clicks "Send Reminders" | `⏰ REMINDER: Course Deadline - {course}` |
 | `send_course_removal_email` | User removed from assignment | `Course Assignment Removed: {course}` |
+| `send_course_completion_email` | **Automatic** — an API sync detects a new completion | `✅ Course Completed: {course}` |
 | `send_bulk_emails` | Generic bulk send utility | Custom |
+
+### Automatic Completion Notifications
+
+**Every cache refresh** asks: *has anyone completed a course an assignment requires of
+them, and have we told them yet?* If not, they get a congratulations email — once, ever.
+
+```
+refresh_cache_background()
+  ├── fetch_fresh_data_from_api()
+  ├── record_completion_history()            # append-only completion ledger
+  └── dispatch_completion_notifications()    # ← this
+        ├── For each assignment:
+        │     compute_assignment_progress()  # same staleness/validity-window engine
+        │     └── users with status == 'completed'  (i.e. finished INSIDE the window)
+        ├── Assignment has no baseline yet? → set_notification_baseline()
+        │     records everyone currently complete as 'pre_existing' and emails NOBODY
+        ├── db.claim_completion_notifications(candidates)
+        │     INSERT OR IGNORE on PK (assignment_id, email) → returns only rows
+        │     THIS call inserted, so a concurrent sync claims nothing
+        ├── Send claimed emails in parallel (ThreadPoolExecutor, 8 workers)
+        └── db.settle_notification(...) per email:
+              sent  → status 'sent'   (never sent again)
+              failed→ claim DELETED   (retried on the next sync)
+```
+
+**Why the baseline exists.** Without it, the first sync after this feature shipped would
+blast a congratulations email at every user who had *already* completed a course months
+ago — and creating an assignment with a backdated `effective_from` (which deliberately
+credits older completions) would do the same. An assignment is baselined the moment it
+starts being watched: at creation, or on the first sync for assignments that predate the
+feature. Everyone already complete at that instant is recorded as `pre_existing` and
+permanently suppressed. **Only a completion that appears *after* the baseline is an event
+worth announcing.**
+
+**Exactly-once guarantee.** The `completion_notifications` table's primary key
+`(assignment_id, email)` *is* the lock. The dispatcher claims before it sends, so:
+re-observing the same completion on every 30-minute sync sends nothing; two concurrent
+refreshes cannot both claim the same pair; and a send that fails releases its claim so
+the next sync retries it. A `_notify_lock` additionally makes an overlapping pass a no-op.
+
+Deleting an assignment drops its notification rows **and** its baseline.
+
+Set `NOTIFY_ON_COMPLETION=false` in `.env` to switch the whole mechanism off.
 
 ### Assignment Email Template
 
@@ -583,6 +747,23 @@ Email failures never block assignment creation/update — they are logged and co
 | POST 🔒 | `/api/settings/assignments/<id>/remind` | Send deadline reminders |
 | POST 🔒 | `/api/settings/assignments/bulk-upload` | Bulk assignment from Excel |
 | GET | `/api/email-job/<job_id>` | Poll background email job progress |
+
+### FY / Assignment Analytics (any logged-in user)
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/assignments-dashboard` | FY / quarter / dimension analytics page |
+| GET | `/api/assignments-summary` | Full dashboard payload — see params below |
+| GET | `/api/assignment-progress/<id>` | Per-user progress for one assignment (drill-down) |
+| GET | `/api/fy-user/<email>` | One user's assignment-by-assignment breakdown |
+
+**Query parameters:**
+
+| Param | Values | Applies to | Meaning |
+|-------|--------|-----------|---------|
+| `fy` | `current` \| `all` \| `<start_year>` | summary, fy-user | Financial-year scope |
+| `quarter` | `1`–`4` \| `all` | summary, fy-user | Narrow an FY scope to one quarter (ignored when `fy=all`) |
+| `include_untracked` | `true` (default) \| `false` | summary, assignment-progress | Count users who are in the API but not on the uploaded roster |
 
 > `POST /api/refresh-cache` (authenticated, [§9](#authenticated-any-logged-in-user)) is also CSRF-protected.
 
@@ -746,6 +927,7 @@ Loaded by `python-dotenv` at startup in both `app.py` and `email_service.py`. A 
 | `SMTP_PASSWORD` | no | Office 365 app password |
 | `HTTPS_ONLY` | no (`false`) | `true` sets `SESSION_COOKIE_SECURE=True` (HTTPS deployments) |
 | `APP_DB_PATH` | no (`data/app.db`) | Override the SQLite DB file location (read by `db.py`) |
+| `NOTIFY_ON_COMPLETION` | no (`true`) | `false` disables the automatic completion congratulations email ([§8](#8-email-notification-system)) |
 
 Missing any **required** variable raises `KeyError` and the app refuses to start (fail-fast). The three role passwords map to accounts `superadmin` / `admin` / `user`.
 
@@ -755,6 +937,7 @@ Missing any **required** variable raises `KeyError` and the app refuses to start
 |----------|---------|-------------|
 | `API_TIMEOUT` | `360` | Seconds before API request times out |
 | `AUTO_REFRESH_INTERVAL_MINUTES` | `5` | Background cache refresh cadence |
+| `DEFAULT_DEADLINE_DAYS` | `15` | Deadline applied when an assignment is created without one ([§7](#default-deadline-15-days)) |
 | `CACHE_FILE` | `'data/api_cache.json'` | Persistent cache path |
 | `_LOGIN_MAX` / `_LOGIN_WINDOW` | `10` / `60` | Per-IP login rate limit: attempts per seconds |
 | `_LOCKOUT_THRESHOLD` / `_LOCKOUT_SECONDS` | `5` / `900` | Per-username soft lockout: failures before a 15 min cooldown |

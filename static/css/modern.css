@@ -538,6 +538,54 @@ body.modal-open { overflow: hidden; }
 /* ---------- Status pills (drill-down modals) ---------- */
 /* Proper rounded pill with comfortable padding, regardless of the small
    utility classes present in the markup. */
+/* ---------- User roster: profile fields + tracked/untracked chips ----------
+   Used on the Settings > Users tab. The three profile inputs (department,
+   location, role) sit side by side on anything wider than a phone, and each
+   user row shows whatever profile values the roster upload supplied. */
+.profile-grid {
+    display: grid;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+    gap: .75rem;
+}
+
+@media (min-width: 640px) {
+    .profile-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+.roster-help {
+    margin-top: .5rem;
+    padding: .55rem .7rem;
+    background: #f8fafc;
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius-sm);
+}
+
+.roster-help code {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0 .25rem;
+    font-size: .68rem;
+}
+
+.roster-filter { margin-top: .5rem; }
+
+.profile-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .25rem;
+    margin-top: .25rem;
+}
+
+.profile-chip {
+    font-size: .65rem;
+    font-weight: 600;
+    color: var(--brand-dark);
+    background: #ccfbf1;
+    border-radius: 999px;
+    padding: .05rem .45rem;
+}
+
 .status-pill {
     display: inline-block;
     padding: .2rem .65rem !important;

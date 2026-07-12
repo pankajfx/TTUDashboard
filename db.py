@@ -35,10 +35,21 @@ ASSIGNMENTS_JSON = os.path.join('data', 'course_assignments.json')
 CACHE_JSON = os.path.join('data', 'api_cache.json')
 
 # Fields kept as real columns; every other key rides along in the `extra` JSON blob.
-_USER_COLS = ('email', 'name', 'source', 'added_date')
+_USER_COLS = ('email', 'name', 'source', 'added_date', 'department', 'location',
+              'job_role', 'tracked', 'updated_date')
 _ASSIGN_COLS = ('id', 'course_name', 'user_emails', 'deadline', 'effective_from',
                 'effective_to', 'created_date', 'created_by', 'title', 'source',
                 'last_modified')
+
+# Columns added to `users` after the table first shipped. CREATE TABLE IF NOT EXISTS
+# will not add them to an existing app.db, so _migrate_schema ALTERs them in.
+_USER_ADDED_COLS = (
+    ('department', 'TEXT'),
+    ('location', 'TEXT'),
+    ('job_role', 'TEXT'),
+    ('tracked', 'INTEGER'),   # 1 = admin-supplied (roster), 0 = API-only (untracked)
+    ('updated_date', 'TEXT'),
+)
 
 
 # ── connection ──────────────────────────────────────────────────────────────
@@ -53,11 +64,16 @@ def _connect():
 def _create_tables(conn):
     conn.executescript('''
         CREATE TABLE IF NOT EXISTS users (
-            email      TEXT PRIMARY KEY,
-            name       TEXT,
-            source     TEXT,
-            added_date TEXT,
-            extra      TEXT
+            email        TEXT PRIMARY KEY,
+            name         TEXT,
+            source       TEXT,
+            added_date   TEXT,
+            department   TEXT,
+            location     TEXT,
+            job_role     TEXT,
+            tracked      INTEGER,
+            updated_date TEXT,
+            extra        TEXT
         );
         CREATE TABLE IF NOT EXISTS assignments (
             id             INTEGER PRIMARY KEY,
@@ -94,7 +110,51 @@ def _create_tables(conn):
             last_seen       TEXT,            -- ISO 8601, when most recently observed
             PRIMARY KEY (course, email, completion_date)
         );
+        -- One row per (assignment, user) congratulations email. Doubles as the
+        -- claim ledger: the dispatcher INSERTs 'pending' rows first, so a second
+        -- sync running concurrently claims nothing and cannot double-send. A row
+        -- that fails to send is deleted, so the next sync retries it.
+        CREATE TABLE IF NOT EXISTS completion_notifications (
+            assignment_id   INTEGER NOT NULL,
+            email           TEXT NOT NULL,
+            course          TEXT,
+            completion_date TEXT,
+            status          TEXT,            -- 'pending' | 'sent' | 'pre_existing'
+            claimed_at      TEXT,
+            sent_at         TEXT,
+            PRIMARY KEY (assignment_id, email)
+        );
+        -- An assignment gets a baseline row the moment it starts being watched for
+        -- completions. Users already Completed at that moment are recorded as
+        -- 'pre_existing' and never emailed — only completions detected *after* the
+        -- baseline are congratulated. Without this, the first sync after an
+        -- assignment is created with a backdated window (or the first sync after this
+        -- feature shipped) would blast a congratulations mail at everyone who had
+        -- already finished long ago.
+        CREATE TABLE IF NOT EXISTS notification_baseline (
+            assignment_id INTEGER PRIMARY KEY,
+            created_at    TEXT
+        );
     ''')
+
+
+def _migrate_schema(conn):
+    """Add columns introduced after a table first shipped. CREATE TABLE IF NOT
+    EXISTS is a no-op on an existing app.db, so new columns must be ALTERed in.
+    Idempotent: checks PRAGMA table_info first."""
+    have = {r['name'] for r in conn.execute('PRAGMA table_info(users)')}
+    added = False
+    for col, coltype in _USER_ADDED_COLS:
+        if col not in have:
+            conn.execute(f'ALTER TABLE users ADD COLUMN {col} {coltype}')
+            added = True
+    if added or 'tracked' not in have:
+        # Backfill the tracked flag for rows that predate it: anything the admin
+        # put there (manual add / upload) is part of the authentic roster; users
+        # that only ever came from the API sync are untracked.
+        conn.execute(
+            "UPDATE users SET tracked = CASE WHEN source = 'api' THEN 0 ELSE 1 END "
+            "WHERE tracked IS NULL")
 
 
 def init_db():
@@ -104,6 +164,7 @@ def init_db():
     conn = _connect()
     try:
         _create_tables(conn)
+        _migrate_schema(conn)
         conn.commit()
     finally:
         conn.close()
@@ -112,9 +173,18 @@ def init_db():
 
 
 # ── users ───────────────────────────────────────────────────────────────────
+# A user row carries an optional profile (department / location / job_role) plus a
+# `tracked` flag. Tracked users are the authentic roster the admin uploaded or added
+# by hand; users that only ever appeared in the API sync are untracked — they still
+# show up in analytics, but can be excluded with one switch on the dashboard.
 def _row_to_user(r):
     d = {'email': r['email'], 'name': r['name'], 'source': r['source'],
-         'added_date': r['added_date']}
+         'added_date': r['added_date'],
+         'department': r['department'] or '',
+         'location': r['location'] or '',
+         'job_role': r['job_role'] or '',
+         'tracked': bool(r['tracked']),
+         'updated_date': r['updated_date'] or ''}
     if r['extra']:
         d.update(json.loads(r['extra']))
     return d
@@ -138,16 +208,84 @@ def write_users(data):
             u = dict(u or {})
             extra = {k: v for k, v in u.items() if k not in _USER_COLS}
             conn.execute(
-                'INSERT OR REPLACE INTO users (email, name, source, added_date, extra) '
-                'VALUES (?, ?, ?, ?, ?)',
+                'INSERT OR REPLACE INTO users (email, name, source, added_date, '
+                ' department, location, job_role, tracked, updated_date, extra) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 ((u.get('email') or '').strip(), u.get('name'), u.get('source'),
-                 u.get('added_date'), json.dumps(extra) if extra else None))
+                 u.get('added_date'), u.get('department') or '', u.get('location') or '',
+                 u.get('job_role') or '', 1 if u.get('tracked') else 0,
+                 u.get('updated_date') or '',
+                 json.dumps(extra) if extra else None))
         conn.commit()
         return True
     except Exception as e:
         conn.rollback()
         print(f'db.write_users error: {e}')
         return False
+    finally:
+        conn.close()
+
+
+def upsert_user_profiles(profiles, timestamp=None):
+    """Apply an uploaded roster to the users table, matching on email (case-insensitive).
+
+    ``profiles`` is an iterable of dicts with an ``email`` plus any of ``name``,
+    ``department``, ``location``, ``job_role``. An existing user — including one the
+    API sync created — is *augmented* in place: supplied fields overwrite, blank
+    fields leave the stored value alone, and the row is promoted to tracked=1. An
+    unknown email is inserted as a new tracked user. Users absent from the upload
+    are untouched, so they keep whatever they had (untracked, no profile).
+
+    Returns {'added': n, 'updated': n} — 'updated' counts rows that already existed.
+    """
+    ts = timestamp or datetime.now()
+    ts = ts.strftime('%Y-%m-%d %H:%M:%S') if hasattr(ts, 'strftime') else str(ts)
+    conn = _connect()
+    added = updated = 0
+    try:
+        _create_tables(conn)
+        _migrate_schema(conn)
+        existing = {(r['email'] or '').strip().lower(): r['email']
+                    for r in conn.execute('SELECT email FROM users')}
+        for p in profiles or []:
+            email = (p.get('email') or '').strip()
+            if not email:
+                continue
+            key = email.lower()
+            stored = existing.get(key)
+            if stored is None:
+                conn.execute(
+                    'INSERT INTO users (email, name, source, added_date, department, '
+                    ' location, job_role, tracked, updated_date) '
+                    "VALUES (?, ?, 'upload', ?, ?, ?, ?, 1, ?)",
+                    (email, (p.get('name') or '').strip(), ts,
+                     (p.get('department') or '').strip(), (p.get('location') or '').strip(),
+                     (p.get('job_role') or '').strip(), ts))
+                existing[key] = email
+                added += 1
+            else:
+                # COALESCE(NULLIF(?, ''), col) — an omitted/blank cell in the upload
+                # must not wipe a value the row already carries.
+                conn.execute(
+                    'UPDATE users SET '
+                    "  name        = COALESCE(NULLIF(?, ''), name), "
+                    "  department  = COALESCE(NULLIF(?, ''), department), "
+                    "  location    = COALESCE(NULLIF(?, ''), location), "
+                    "  job_role    = COALESCE(NULLIF(?, ''), job_role), "
+                    "  source      = 'upload', "
+                    '  tracked     = 1, '
+                    '  updated_date = ? '
+                    'WHERE email = ?',
+                    ((p.get('name') or '').strip(), (p.get('department') or '').strip(),
+                     (p.get('location') or '').strip(), (p.get('job_role') or '').strip(),
+                     ts, stored))
+                updated += 1
+        conn.commit()
+        return {'added': added, 'updated': updated}
+    except Exception as e:
+        conn.rollback()
+        print(f'db.upsert_user_profiles error: {e}')
+        return {'added': 0, 'updated': 0}
     finally:
         conn.close()
 
@@ -244,6 +382,8 @@ def write_cache(data, timestamp):
         conn.rollback()
         print(f'db.write_cache error: {e}')
         return False
+    finally:
+        conn.close()
 
 
 # ── completion-history ledger ───────────────────────────────────────────────
@@ -309,6 +449,199 @@ def read_completion_history():
     return [(r['course'], r['email'], r['completion_date']) for r in rows]
 
 
+# ── completion-notification ledger ──────────────────────────────────────────
+def baselined_assignment_ids():
+    """Ids of assignments already being watched for new completions."""
+    conn = _connect()
+    try:
+        _create_tables(conn)
+        rows = conn.execute('SELECT assignment_id FROM notification_baseline').fetchall()
+    finally:
+        conn.close()
+    return {r['assignment_id'] for r in rows}
+
+
+def set_notification_baseline(assignment_id, already_completed, timestamp=None):
+    """Start watching an assignment for completions.
+
+    ``already_completed`` is the iterable of candidate dicts (same shape as
+    ``claim_completion_notifications``) for users who are *already* Completed inside
+    the assignment's window right now. They are written to the ledger as
+    'pre_existing', which permanently suppresses their congratulations email — they
+    finished before anyone was watching, so there is no completion *event* to
+    announce. Everyone who completes from here on is emailed exactly once.
+
+    Idempotent: an assignment that already has a baseline is left alone."""
+    ts = timestamp or datetime.now()
+    ts = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
+    conn = _connect()
+    try:
+        _create_tables(conn)
+        cur = conn.execute(
+            'INSERT OR IGNORE INTO notification_baseline (assignment_id, created_at) '
+            'VALUES (?, ?)', (assignment_id, ts))
+        if not cur.rowcount:
+            conn.rollback()
+            return 0   # already baselined; do not re-suppress anything
+        seeded = 0
+        for c in already_completed or []:
+            email = (c.get('email') or '').strip()
+            if not email:
+                continue
+            cur = conn.execute(
+                'INSERT OR IGNORE INTO completion_notifications '
+                '(assignment_id, email, course, completion_date, status, claimed_at) '
+                "VALUES (?, ?, ?, ?, 'pre_existing', ?)",
+                (assignment_id, email, c.get('course') or '',
+                 c.get('completion_date') or '', ts))
+            seeded += cur.rowcount
+        conn.commit()
+        return seeded
+    except Exception as e:
+        conn.rollback()
+        print(f'db.set_notification_baseline error: {e}')
+        return 0
+    finally:
+        conn.close()
+
+
+def suppress_completion_notifications(candidates, timestamp=None):
+    """Record (assignment, user) pairs as 'pre_existing' — already complete when they
+    came under the assignment, so there is no completion *event* to congratulate.
+
+    Used when users are added to an assignment that is already being watched: a person
+    who finished the course before they were assigned it should not be emailed as if
+    they had just completed it. Pairs already in the ledger are left alone."""
+    ts = timestamp or datetime.now()
+    ts = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
+    conn = _connect()
+    n = 0
+    try:
+        _create_tables(conn)
+        for c in candidates or []:
+            aid = c.get('assignment_id')
+            email = (c.get('email') or '').strip()
+            if aid is None or not email:
+                continue
+            cur = conn.execute(
+                'INSERT OR IGNORE INTO completion_notifications '
+                '(assignment_id, email, course, completion_date, status, claimed_at) '
+                "VALUES (?, ?, ?, ?, 'pre_existing', ?)",
+                (aid, email, c.get('course') or '', c.get('completion_date') or '', ts))
+            n += cur.rowcount
+        conn.commit()
+        return n
+    except Exception as e:
+        conn.rollback()
+        print(f'db.suppress_completion_notifications error: {e}')
+        return 0
+    finally:
+        conn.close()
+
+
+def claim_completion_notifications(candidates, timestamp=None):
+    """Reserve the (assignment, user) pairs this process is about to congratulate.
+
+    ``candidates`` is an iterable of dicts with ``assignment_id``, ``email`` and
+    optionally ``course`` / ``completion_date``. Each pair is INSERTed with status
+    'pending'; the (assignment_id, email) primary key means a pair already recorded
+    — whether sent earlier or being sent right now by a concurrent refresh — is
+    silently skipped. Only the rows this call actually inserted come back, so the
+    caller can send exactly those and nothing is emailed twice.
+
+    Call ``settle_notification`` for each claim afterwards: success marks it 'sent',
+    failure deletes the claim so the next sync retries it."""
+    ts = timestamp or datetime.now()
+    ts = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
+    conn = _connect()
+    claimed = []
+    try:
+        _create_tables(conn)
+        for c in candidates or []:
+            aid = c.get('assignment_id')
+            email = (c.get('email') or '').strip()
+            if aid is None or not email:
+                continue
+            cur = conn.execute(
+                'INSERT OR IGNORE INTO completion_notifications '
+                '(assignment_id, email, course, completion_date, status, claimed_at) '
+                "VALUES (?, ?, ?, ?, 'pending', ?)",
+                (aid, email, c.get('course') or '', c.get('completion_date') or '', ts))
+            if cur.rowcount:
+                claimed.append(c)
+        conn.commit()
+        return claimed
+    except Exception as e:
+        conn.rollback()
+        print(f'db.claim_completion_notifications error: {e}')
+        return []
+    finally:
+        conn.close()
+
+
+def settle_notification(assignment_id, email, sent, timestamp=None):
+    """Close out a claim: ``sent=True`` marks it 'sent' (never emailed again),
+    ``sent=False`` deletes the claim so the next API sync retries it."""
+    ts = timestamp or datetime.now()
+    ts = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
+    conn = _connect()
+    try:
+        if sent:
+            conn.execute(
+                "UPDATE completion_notifications SET status = 'sent', sent_at = ? "
+                'WHERE assignment_id = ? AND email = ?', (ts, assignment_id, email))
+        else:
+            conn.execute(
+                'DELETE FROM completion_notifications '
+                'WHERE assignment_id = ? AND email = ?', (assignment_id, email))
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        print(f'db.settle_notification error: {e}')
+        return False
+    finally:
+        conn.close()
+
+
+def read_completion_notifications(assignment_id=None):
+    """Notification rows, optionally for one assignment. Used by the UI to show who
+    has already been congratulated."""
+    conn = _connect()
+    try:
+        _create_tables(conn)
+        if assignment_id is None:
+            rows = conn.execute(
+                'SELECT * FROM completion_notifications').fetchall()
+        else:
+            rows = conn.execute(
+                'SELECT * FROM completion_notifications WHERE assignment_id = ?',
+                (assignment_id,)).fetchall()
+    finally:
+        conn.close()
+    return [dict(r) for r in rows]
+
+
+def delete_notifications_for_assignment(assignment_id):
+    """Drop an assignment's notification rows when the assignment itself is deleted,
+    so a later assignment that reuses the id can't inherit a 'already notified' state."""
+    conn = _connect()
+    try:
+        _create_tables(conn)
+        conn.execute('DELETE FROM completion_notifications WHERE assignment_id = ?',
+                     (assignment_id,))
+        conn.execute('DELETE FROM notification_baseline WHERE assignment_id = ?',
+                     (assignment_id,))
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        print(f'db.delete_notifications_for_assignment error: {e}')
+        return False
+    finally:
+        conn.close()
+
+
 # ── migration / bootstrap ───────────────────────────────────────────────────
 def _load_json(path, default):
     try:
@@ -331,6 +664,8 @@ def migrate_from_json(force=False, users_path=USERS_JSON,
     conn = _connect()
     try:
         _create_tables(conn)
+        _migrate_schema(conn)
+        conn.commit()
         if force:
             conn.executescript(
                 'DELETE FROM users; DELETE FROM assignments; DELETE FROM api_cache;')

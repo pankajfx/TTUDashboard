@@ -81,6 +81,28 @@
                             <input type="email" id="userEmail" required class="input-field w-full px-4 py-2 rounded-lg"
                                 placeholder="user@example.com">
                         </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">Name <span class="text-gray-400 font-normal">(optional)</span></label>
+                            <input type="text" id="userName" class="input-field w-full px-4 py-2 rounded-lg"
+                                placeholder="Jane Doe">
+                        </div>
+                        <div class="profile-grid">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Department</label>
+                                <input type="text" id="userDepartment" class="input-field w-full px-4 py-2 rounded-lg"
+                                    placeholder="Safety">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Location</label>
+                                <input type="text" id="userLocation" class="input-field w-full px-4 py-2 rounded-lg"
+                                    placeholder="Mumbai">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Role</label>
+                                <input type="text" id="userJobRole" class="input-field w-full px-4 py-2 rounded-lg"
+                                    placeholder="Engineer">
+                            </div>
+                        </div>
                         <button type="submit" class="btn-primary w-full py-2 px-4 text-white font-semibold rounded-lg">
                             Add User
                         </button>
@@ -99,10 +121,20 @@
                     <!-- Bulk Upload -->
                     <form id="bulkUploadUsersForm" class="space-y-4">
                         <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">Upload Excel File</label>
-                            <input type="file" id="usersFileInput" accept=".xlsx,.xls" 
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">Upload User Roster (Excel)</label>
+                            <input type="file" id="usersFileInput" accept=".xlsx,.xls"
                                 class="input-field w-full px-4 py-2 rounded-lg text-sm">
-                            <p class="text-xs text-gray-500 mt-1">Upload an Excel file with email addresses in the first column</p>
+                            <div class="roster-help">
+                                <p class="text-xs text-gray-600 font-semibold mb-1">Header row (any column order):</p>
+                                <p class="text-xs text-gray-500"><code>Email</code> · <code>Name</code> · <code>Department</code> · <code>Location</code> · <code>Role</code></p>
+                                <p class="text-xs text-gray-500 mt-1">
+                                    Only <strong>Email</strong> is required. Users already in the registry — including
+                                    those pulled in from the API — are <strong>augmented</strong> with these details and
+                                    marked <strong>Tracked</strong>. Anyone not in the file stays as they are; API users
+                                    never uploaded remain <strong>Untracked</strong>.
+                                </p>
+                                <p class="text-xs text-gray-400 mt-1">A sheet with no header row is read as: A=Email, B=Name, C=Department, D=Location, E=Role.</p>
+                            </div>
                         </div>
                         <button type="submit" id="uploadUsersBtn"
                             class="btn-primary w-full py-2 px-4 text-white font-semibold rounded-lg flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed">
@@ -130,8 +162,15 @@
 
                     <!-- Search Input -->
                     <div class="mb-4">
-                        <input type="text" id="userSearchInput" placeholder="Search users by email or name..."
+                        <input type="text" id="userSearchInput" placeholder="Search by email, name, department, location or role..."
                             class="input-field w-full px-4 py-2 rounded-lg" />
+                        <div class="roster-filter">
+                            <select id="userTrackedFilter" class="input-field px-3 py-1.5 rounded-lg text-sm">
+                                <option value="all">All users</option>
+                                <option value="tracked">Tracked only (uploaded roster)</option>
+                                <option value="untracked">Untracked only (API, never uploaded)</option>
+                            </select>
+                        </div>
                         <div id="searchResultsCount" class="text-sm text-gray-600 mt-2">
                             <!-- Shows: "Showing X of Y users" -->
                         </div>
@@ -213,8 +252,9 @@
                             <p class="text-xs text-gray-500 mt-1">Completions after this won't count. Leave blank for no end.</p>
                         </div>
                         <div style="position:relative;overflow:hidden;width:100%;">
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">Deadline</label>
-                            <input type="date" id="deadline" required class="input-field px-4 py-2 rounded-lg" style="-webkit-appearance:none;appearance:none;display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:42px;line-height:1.5;">
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">Deadline <span class="text-gray-400 font-normal">(optional)</span></label>
+                            <input type="date" id="deadline" class="input-field px-4 py-2 rounded-lg" style="-webkit-appearance:none;appearance:none;display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:42px;line-height:1.5;">
+                            <p class="text-xs text-gray-500 mt-1">Leave blank to default to <strong>15 days</strong> from today (<span id="defaultDeadlineHint"></span>).</p>
                         </div>
                         <button type="submit" class="btn-primary w-full py-2 px-4 text-white font-semibold rounded-lg">
                             Create Assignment
@@ -261,8 +301,9 @@
                                 <p class="text-xs text-gray-500 mt-1">Completions after this won't count. Leave blank for no end.</p>
                             </div>
                             <div style="position:relative;overflow:hidden;width:100%;">
-                                <label class="block text-sm font-semibold text-gray-700 mb-2">Deadline</label>
-                                <input type="date" id="bulkDeadline" required class="input-field px-4 py-2 rounded-lg" style="-webkit-appearance:none;appearance:none;display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:42px;line-height:1.5;">
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Deadline <span class="text-gray-400 font-normal">(optional)</span></label>
+                                <input type="date" id="bulkDeadline" class="input-field px-4 py-2 rounded-lg" style="-webkit-appearance:none;appearance:none;display:block;width:100%;max-width:100%;min-width:0;box-sizing:border-box;height:42px;line-height:1.5;">
+                                <p class="text-xs text-gray-500 mt-1">Leave blank to default to <strong>15 days</strong> from today.</p>
                             </div>
                             <button type="submit" class="btn-primary w-full py-2 px-4 text-white font-semibold rounded-lg flex items-center justify-center gap-1.5">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -810,28 +851,27 @@
             }
         }
 
-        // Filter users based on search term
+        // Filter users by the search box AND the tracked/untracked dropdown. Both
+        // constraints apply together, so "untracked only" + a search term narrows
+        // to untracked users matching that term.
         function filterUsers(searchTerm) {
-            // If search term is empty, show all users
-            if (!searchTerm || searchTerm.trim() === '') {
-                filteredUsers = [...users];
-                renderUsers();
-                updateSearchResultsCount();
-                return;
-            }
+            const term = (searchTerm || '').trim().toLowerCase();
+            const scope = document.getElementById('userTrackedFilter')?.value || 'all';
 
-            // Convert search term to lowercase for case-insensitive matching
-            const lowerSearchTerm = searchTerm.toLowerCase();
-
-            // Filter users by substring matching on email and name
             filteredUsers = users.filter(user => {
-                const emailMatch = user.email.toLowerCase().includes(lowerSearchTerm);
-                const nameMatch = user.name ? user.name.toLowerCase().includes(lowerSearchTerm) : false;
-                return emailMatch || nameMatch;
+                if (scope === 'tracked' && !user.tracked) return false;
+                if (scope === 'untracked' && user.tracked) return false;
+                if (!term) return true;
+                return ['email', 'name', 'department', 'location', 'job_role']
+                    .some(f => (user[f] || '').toLowerCase().includes(term));
             });
 
             renderUsers();
             updateSearchResultsCount();
+        }
+
+        function applyUserFilters() {
+            filterUsers(document.getElementById('userSearchInput')?.value || '');
         }
 
         // Update search results count display
@@ -857,15 +897,17 @@
             try {
                 const response = await fetch('/api/settings/users');
                 users = await response.json();
-                filteredUsers = [...users];
-                renderUsers();
-                updateSearchResultsCount();
+                applyUserFilters();
 
-                // Show sync info
-                const apiUsers = users.filter(u => u.source === 'api').length;
-                const manualUsers = users.filter(u => u.source === 'manual').length;
+                // Tracked = on the uploaded roster (the authentic user list).
+                // Untracked = seen in the API but never uploaded, so no profile.
+                const tracked = users.filter(u => u.tracked).length;
+                const untracked = users.length - tracked;
+                const profiled = users.filter(u => u.department || u.location || u.job_role).length;
                 document.getElementById('syncMessage').innerHTML =
-                    `<span class="text-gray-600">Total: ${users.length} users (${apiUsers} from API, ${manualUsers} manual)</span>`;
+                    `<span class="text-gray-600">Total: ${users.length} users — ` +
+                    `<strong class="text-green-700">${tracked} tracked</strong> (${profiled} with profile), ` +
+                    `<strong class="text-amber-700">${untracked} untracked</strong></span>`;
             } catch (error) {
                 console.error('Error loading users:', error);
             }
@@ -917,14 +959,21 @@
             }
 
             // Render filtered users
-            usersList.innerHTML = filteredUsers.map(user => `
+            usersList.innerHTML = filteredUsers.map(user => {
+                const profile = ['department', 'location', 'job_role']
+                    .map(f => user[f]).filter(Boolean).map(v => `<span class="profile-chip">${h(v)}</span>`).join('');
+                const badge = user.tracked
+                    ? '<span class="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded">Tracked</span>'
+                    : '<span class="px-2 py-0.5 text-xs bg-amber-100 text-amber-700 rounded" title="Seen in the API but never uploaded — excluded when the dashboard hides untracked users">Untracked</span>';
+                return `
                 <div class="user-item flex justify-between items-center p-3 bg-gray-50 rounded-lg">
                     <div class="flex-1">
                         <div class="flex items-center gap-2">
                             <p class="font-medium text-gray-900">${h(user.email)}</p>
-                            ${user.source === 'api' ? '<span class="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">API</span>' : '<span class="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded">Manual</span>'}
+                            ${badge}
                         </div>
                         ${user.name ? `<p class="text-sm text-gray-600">${h(user.name)}</p>` : ''}
+                        ${profile ? `<div class="profile-chips">${profile}</div>` : ''}
                         <p class="text-xs text-gray-500">Added: ${h(user.added_date)}</p>
                     </div>
                     <button class="delete-user-btn text-red-600 hover:text-red-800 ml-2" data-email="${h(user.email)}">
@@ -933,20 +982,23 @@
                         </svg>
                     </button>
                 </div>
-            `).join('');
+            `;
+            }).join('');
 
             usersList.querySelectorAll('.delete-user-btn').forEach(btn => {
                 btn.addEventListener('click', () => deleteUser(btn.dataset.email));
             });
         }
 
-        // Validate user email for duplicates
+        // Validate user email for duplicates.
+        // An *untracked* match is not a duplicate — it is the same person, synced in
+        // from the API and still waiting for a profile. Submitting promotes them onto
+        // the tracked roster, so let it through.
         function validateUserEmail(email) {
-            // Check if email exists in users array (case-insensitive)
             const emailLower = email.toLowerCase();
 
             for (const user of users) {
-                if (user.email.toLowerCase() === emailLower) {
+                if (user.email.toLowerCase() === emailLower && user.tracked) {
                     return {
                         valid: false,
                         error: `User with email '${email}' already exists`
@@ -1013,13 +1065,21 @@
                 const response = await fetch('/api/settings/users', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email })
+                    body: JSON.stringify({
+                        email,
+                        name: document.getElementById('userName').value.trim(),
+                        department: document.getElementById('userDepartment').value.trim(),
+                        location: document.getElementById('userLocation').value.trim(),
+                        job_role: document.getElementById('userJobRole').value.trim()
+                    })
                 });
 
                 const data = await response.json();
                 if (response.ok) {
-                    showNotification('Success', 'User added successfully!', 'success');
-                    document.getElementById('userEmail').value = '';
+                    showNotification('Success', data.promoted
+                        ? 'Existing API user promoted to the tracked roster.'
+                        : 'User added successfully!', 'success');
+                    document.getElementById('addUserForm').reset();
                     clearValidationError();
                     loadUsers();
                 } else {
@@ -1274,14 +1334,14 @@
                 const data = await response.json();
                 if (response.ok) {
                     let message = `Added ${data.added_count} new user(s)`;
-                    if (data.duplicate_count > 0) {
-                        message += `, ${data.duplicate_count} already existed`;
+                    if (data.updated_count > 0) {
+                        message += `, augmented ${data.updated_count} existing user(s) with their details`;
                     }
                     if (data.invalid_count > 0) {
                         message += `, ${data.invalid_count} invalid email(s)`;
                     }
 
-                    showNotification('Upload Complete', message, 'success');
+                    showNotification('Roster Uploaded', message, 'success');
 
                     // Show details if there are issues
                     if (data.invalid_emails && data.invalid_emails.length > 0) {
@@ -1312,8 +1372,9 @@
             const effectiveTo = document.getElementById('effectiveTo').value;
             const selectedUsers = Array.from(selectedAssignmentEmails);
 
-            if (!courseName || !deadline || selectedUsers.length === 0) {
-                showNotification('Validation Error', 'Please fill all fields and select at least one user', 'warning');
+            // Deadline is optional — the server defaults it to 15 days from creation.
+            if (!courseName || selectedUsers.length === 0) {
+                showNotification('Validation Error', 'Please select a course and at least one user', 'warning');
                 return;
             }
 
@@ -1356,11 +1417,14 @@
 
                     hideAssignmentLoader();
 
+                    const deadlineNote = data.deadline_defaulted
+                        ? ` Deadline defaulted to ${data.deadline} (15 days).` : '';
+
                     if (notifyEmail && data.email_job_id) {
-                        const doneMsg = `${selectedUsers.length} notification(s) dispatched for "${courseName}".`;
+                        const doneMsg = `${selectedUsers.length} notification(s) dispatched for "${courseName}".${deadlineNote}`;
                         pollEmailJob(data.email_job_id, data.email_total || selectedUsers.length, doneMsg);
                     } else {
-                        showNotification('Success', 'Assignment created successfully!', 'success');
+                        showNotification('Success', 'Assignment created successfully!' + deadlineNote, 'success');
                         loadAssignments();
                     }
                 } else {
@@ -1390,8 +1454,9 @@
             const fileInput = document.getElementById('assignmentFileInput');
             const file = fileInput.files[0];
 
-            if (!courseName || !deadline || !file) {
-                showNotification('Validation Error', 'Please fill all fields and select a file', 'warning');
+            // Deadline is optional — the server defaults it to 15 days from creation.
+            if (!courseName || !file) {
+                showNotification('Validation Error', 'Please select a course and a file', 'warning');
                 return;
             }
 
@@ -2053,10 +2118,23 @@
         loadUsers();
         loadAssignments();
 
+        // Show the date an empty deadline field will resolve to (server-side default
+        // is 15 days from creation — keep both in step if that constant changes).
+        (function showDefaultDeadline() {
+            const el = document.getElementById('defaultDeadlineHint');
+            if (!el) return;
+            const d = new Date();
+            d.setDate(d.getDate() + 15);
+            el.textContent = d.toISOString().slice(0, 10);
+        })();
+
         // Add event listener for user management search input
         document.getElementById('userSearchInput').addEventListener('input', (e) => {
             filterUsers(e.target.value);
         });
+
+        // Tracked / untracked scope dropdown — re-applies alongside the search term
+        document.getElementById('userTrackedFilter').addEventListener('change', applyUserFilters);
 
         // Add event listener for assignment user search input
         document.getElementById('assignmentUserSearchInput').addEventListener('input', (e) => {

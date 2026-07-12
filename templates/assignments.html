@@ -31,6 +31,80 @@
             box-sizing: border-box;
             line-height: 1;
         }
+
+        /* ---- Period strip (quarters of the FY, or one card per FY) ---- */
+        .period-head {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: .75rem;
+            margin-bottom: .75rem;
+        }
+        .period-cards {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: .5rem;
+        }
+        @media (min-width: 900px) { .period-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+        .period-card {
+            text-align: left;
+            padding: .6rem .75rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: #fff;
+            cursor: pointer;
+            transition: border-color .15s, box-shadow .15s, transform .15s;
+        }
+        .period-card:hover { border-color: var(--brand-2); transform: translateY(-1px); box-shadow: var(--shadow); }
+        .period-card.active { border-color: var(--brand); box-shadow: 0 0 0 2px rgba(13, 148, 136, .18); background: #f0fdfa; }
+        .period-card.empty { opacity: .55; }
+        .period-card .p-label { font-size: .8rem; font-weight: 700; color: var(--text); }
+        .period-card .p-range { font-size: .68rem; color: var(--text-3); margin-left: .25rem; font-weight: 500; }
+        .period-card .p-rate  { font-size: 1.25rem; font-weight: 700; margin: .15rem 0; }
+        .period-card .p-meta  { font-size: .68rem; color: var(--text-2); }
+        .period-card .p-bar   { height: 4px; border-radius: 2px; background: #e5e7eb; overflow: hidden; margin-top: .3rem; }
+        .period-card .p-bar > span { display: block; height: 100%; }
+
+        /* ---- Include-untracked switch ---- */
+        .untracked-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: .45rem;
+            font-size: .78rem;
+            font-weight: 600;
+            color: var(--text-2);
+            cursor: pointer;
+            padding: .35rem .6rem;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: #fff;
+        }
+        .untracked-toggle:hover { border-color: var(--brand-2); }
+        .untracked-toggle input { width: 15px; height: 15px; accent-color: var(--brand); cursor: pointer; }
+        .untracked-count {
+            font-size: .68rem;
+            font-weight: 700;
+            color: var(--warn);
+            background: #fffbeb;
+            border-radius: 999px;
+            padding: .05rem .4rem;
+        }
+        .untracked-warning {
+            font-size: .75rem;
+            line-height: 1.45;
+            color: #92400e;
+            background: #fffbeb;
+            border: 1px solid #fde68a;
+            border-radius: var(--radius-sm);
+            padding: .5rem .7rem;
+            margin-bottom: .75rem;
+        }
+
+        /* ---- Dimension breakdown: chart beside table on wide screens ---- */
+        .dim-layout { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+        @media (min-width: 1024px) { .dim-layout { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); } }
     </style>
 </head>
 <body>
@@ -116,6 +190,26 @@
             </div>
         </div>
 
+        <!-- Period strip — the top view of the scope, one level down: the four
+             quarters of the selected FY, or one card per FY when the scope is
+             "All". Lives outside #dashboard so an empty quarter still leaves you
+             something to click back out of. -->
+        <div id="period-strip" class="card p-3 sm:p-5 mb-4 sm:mb-6 hidden">
+            <div class="period-head">
+                <div>
+                    <p class="text-xs sm:text-sm font-semibold text-gray-500 uppercase tracking-wide" id="period-title">Quarters</p>
+                    <p class="text-xs text-gray-500" id="period-note">Click a quarter to narrow every figure below to it</p>
+                </div>
+                <label class="untracked-toggle" title="Untracked users appear in the API but were never uploaded on the roster, so they have no department, location or role. Uncheck to exclude them from every figure on this page.">
+                    <input type="checkbox" id="include-untracked" checked onchange="onUntrackedChange(this.checked)">
+                    <span>Include untracked users</span>
+                    <span class="untracked-count" id="untracked-count"></span>
+                </label>
+            </div>
+            <div id="untracked-warning" class="untracked-warning hidden"></div>
+            <div class="period-cards" id="period-cards"></div>
+        </div>
+
         <div id="loading" class="text-center py-12">
             <div class="loading mx-auto"></div>
             <p class="text-gray-600 mt-4">Loading assignment analytics…</p>
@@ -123,8 +217,8 @@
 
         <div id="empty-state" class="hidden text-center py-16">
             <svg class="w-16 h-16 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-            <p class="text-lg font-semibold text-gray-700">No assignments in this financial year</p>
-            <p class="text-sm text-gray-500 mt-1">Pick another financial year above, or create assignments in Settings.</p>
+            <p class="text-lg font-semibold text-gray-700" id="empty-title">No assignments in this financial year</p>
+            <p class="text-sm text-gray-500 mt-1" id="empty-note">Pick another financial year above, or create assignments in Settings.</p>
         </div>
 
         <div id="dashboard" class="hidden">
@@ -205,6 +299,23 @@
                         </button>
                     </div>
                     <div id="chart-byAssignment" style="height: 320px;"></div>
+                </div>
+            </div>
+
+            <!-- Department / Location / Role breakdown -->
+            <div class="card p-3 sm:p-6 mb-4 sm:mb-8">
+                <div class="flex flex-wrap justify-between items-center mb-4 border-b border-gray-200 gap-2">
+                    <div class="flex space-x-2 sm:space-x-4">
+                        <button id="dim-tab-department" class="tab-btn active px-3 py-2 text-sm sm:px-4 font-semibold text-blue-600 border-b-2 border-blue-600" onclick="switchDim('department')">By Department</button>
+                        <button id="dim-tab-location" class="tab-btn px-3 py-2 text-sm sm:px-4 font-semibold text-gray-500 border-b-2 border-transparent hover:text-gray-700" onclick="switchDim('location')">By Location</button>
+                        <button id="dim-tab-job_role" class="tab-btn px-3 py-2 text-sm sm:px-4 font-semibold text-gray-500 border-b-2 border-transparent hover:text-gray-700" onclick="switchDim('job_role')">By Role</button>
+                    </div>
+                    <button onclick="exportDimension()" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 mb-1">Export CSV</button>
+                </div>
+                <p class="text-xs text-gray-500 mb-3" id="dim-hint">Progress by department. Values come from the uploaded roster; “Unspecified” means the roster left the field blank.</p>
+                <div class="dim-layout">
+                    <div id="chart-dimension" style="height: 340px;"></div>
+                    <div class="overflow-x-auto"><div id="table-dimension"></div></div>
                 </div>
             </div>
 
@@ -316,11 +427,15 @@
         const STATUS_LABELS = { completed:'Completed', in_progress:'In Progress', not_started:'Not Started' };
         let summary = null;
         let selectedFy = 'current';
+        let selectedQuarter = 'all';   // 'all' | '1'..'4' — only meaningful within one FY
+        let includeUntracked = true;   // count users who are in the API but not on the roster
         let currentTab = 'assignments';
+        let currentDim = 'department'; // department | location | job_role
+        const DIM_LABELS = { department:'Department', location:'Location', job_role:'Role' };
         const charts = {};
         const chartViews = { perCourse:'top10', byAssignment:'top10' };
         let _zoomedChart = null;
-        const sortState = { assignments:{key:'created_date',dir:-1}, courses:{key:'assignment_count',dir:-1}, users:{key:'assignments_count',dir:-1} };
+        const sortState = { assignments:{key:'created_date',dir:-1}, courses:{key:'assignment_count',dir:-1}, users:{key:'assignments_count',dir:-1}, dimension:{key:'enrollments',dir:-1} };
 
         function h(str){ if(str===null||str===undefined) return ''; return String(str).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
         function pct(v){ return (v===null||v===undefined?0:v) + '%'; }
@@ -351,8 +466,20 @@
             users: [
                 {key:'name', label:'User', type:'str', fmt:(v,row)=> v || row.email.split('@')[0]},
                 {key:'email', label:'Email', type:'str'},
+                {key:'department', label:'Department', type:'str', fmt:(v,row)=> v || (row.tracked ? '—' : 'Untracked')},
+                {key:'location', label:'Location', type:'str', fmt:(v,row)=> v || (row.tracked ? '—' : 'Untracked')},
+                {key:'job_role', label:'Role', type:'str', fmt:(v,row)=> v || (row.tracked ? '—' : 'Untracked')},
                 {key:'assignments_count', label:'# Assignments', type:'num'},
                 {key:'courses_count', label:'# Courses', type:'num'},
+                {key:'completed', label:'Done', type:'num'},
+                {key:'in_progress', label:'In Prog', type:'num'},
+                {key:'not_started', label:'Not Started', type:'num'},
+                {key:'completion_rate', label:'Completion %', type:'num', bar:true},
+            ],
+            dimension: [
+                {key:'value', label:'Group', type:'str'},
+                {key:'users_count', label:'Users', type:'num'},
+                {key:'enrollments', label:'Enrollments', type:'num'},
                 {key:'completed', label:'Done', type:'num'},
                 {key:'in_progress', label:'In Prog', type:'num'},
                 {key:'not_started', label:'Not Started', type:'num'},
@@ -377,19 +504,37 @@
         async function loadSummary(fy){
             document.getElementById('loading').classList.remove('hidden');
             try {
-                const res = await fetch('/api/assignments-summary?fy=' + encodeURIComponent(fy));
+                const params = new URLSearchParams({
+                    fy: fy,
+                    quarter: selectedQuarter,
+                    include_untracked: includeUntracked ? 'true' : 'false'
+                });
+                const res = await fetch('/api/assignments-summary?' + params.toString());
                 if(!res.ok) throw new Error('HTTP ' + res.status);
                 summary = await res.json();
                 normalizeBuckets(summary);
                 selectedFy = (summary.selected === 'all') ? 'all' : summary.selected;
+                // The server ignores a quarter when the scope is all-FY; mirror that
+                // back into the UI so the strip and the data never disagree.
+                selectedQuarter = summary.quarter ? String(summary.quarter) : 'all';
                 populateFySelect();
                 document.getElementById('fy-scope-note').textContent =
                     (summary.selected === 'all') ? 'Analysing assignments across all financial years'
                     : 'Analysing assignments created in FY ' + summary.selected_label;
                 document.getElementById('loading').classList.add('hidden');
 
+                renderPeriods();
+                renderUntrackedToggle();
+
                 if(!summary.kpis.total_assignments){
                     document.getElementById('dashboard').classList.add('hidden');
+                    const scope = (summary.selected === 'all')
+                        ? 'across all financial years'
+                        : ('in FY ' + summary.selected_label + (summary.quarter ? (' · ' + summary.quarter_label) : ''));
+                    document.getElementById('empty-title').textContent = 'No assignments ' + scope;
+                    document.getElementById('empty-note').textContent = summary.quarter
+                        ? 'Pick another quarter above, or switch financial year.'
+                        : 'Pick another financial year above, or create assignments in Settings.';
                     document.getElementById('empty-state').classList.remove('hidden');
                     return;
                 }
@@ -398,6 +543,7 @@
                 renderKpis();
                 renderCharts();
                 renderTable('assignments'); renderTable('courses'); renderTable('users');
+                renderDimension();
             } catch(err){
                 document.getElementById('loading').innerHTML =
                     '<div class="text-red-700 bg-red-50 rounded-lg p-4 inline-block"><p class="font-semibold">Failed to load analytics</p><p class="text-sm mt-1">'+h(err.message)+'</p></div>';
@@ -417,7 +563,94 @@
             sel.value = cur;
         }
 
-        function onFyChange(v){ selectedFy = v; loadSummary(v); }
+        function onFyChange(v){
+            selectedFy = v;
+            selectedQuarter = 'all';   // a quarter of the old FY means nothing in the new one
+            loadSummary(v);
+        }
+
+        // ── Period strip (quarters, or financial years when scope = All) ─────
+        function rateColor(r){ return r>=75?'#10b981':r>=40?'#f59e0b':'#ef4444'; }
+
+        function renderPeriods(){
+            const strip = document.getElementById('period-strip');
+            const byFy = (summary.period_kind === 'fy');
+            document.getElementById('period-title').textContent = byFy ? 'Financial Years' : 'Quarters — FY ' + summary.selected_label;
+            document.getElementById('period-note').textContent = byFy
+                ? 'Each financial year in scope. Pick a single FY above to break it into quarters.'
+                : 'Click a quarter to narrow every figure below to it; click it again to go back to the full year.';
+
+            let html = '';
+            if(!byFy){
+                // Full-year totals come from the period rows, NOT from summary.kpis:
+                // the KPIs describe the *selected* quarter, so reading them here would
+                // make the Full Year card echo whichever quarter is active.
+                const yr = summary.periods.reduce((t,p)=>({
+                    assignments: t.assignments + p.assignments,
+                    enrollments: t.enrollments + p.enrollments,
+                    completed:   t.completed   + p.completed
+                }), {assignments:0, enrollments:0, completed:0});
+                const yrRate = yr.enrollments ? Math.round(yr.completed / yr.enrollments * 10000) / 100 : 0;
+                const on = (selectedQuarter === 'all');
+                html += '<button type="button" class="period-card'+(on?' active':'')+'" data-key="all">'
+                     +  '<div><span class="p-label">Full Year</span><span class="p-range">Apr–Mar</span></div>'
+                     +  '<div class="p-rate" style="color:'+rateColor(yrRate)+'">'+yrRate+'%</div>'
+                     +  '<div class="p-meta">'+yr.assignments+' assignment'+(yr.assignments!==1?'s':'')+' · '+yr.completed+'/'+yr.enrollments+' done</div>'
+                     +  '<div class="p-bar"><span style="width:'+Math.min(yrRate,100)+'%;background:'+rateColor(yrRate)+'"></span></div>'
+                     +  '</button>';
+            }
+            summary.periods.forEach(p=>{
+                const on = !byFy && (selectedQuarter === p.key);
+                const empty = !p.assignments;
+                html += '<button type="button" class="period-card'+(on?' active':'')+(empty?' empty':'')+'" data-key="'+h(p.key)+'">'
+                     +  '<div><span class="p-label">'+h(p.label)+'</span>'
+                     +  (p.sublabel?'<span class="p-range">'+h(p.sublabel)+'</span>':'')+'</div>'
+                     +  '<div class="p-rate" style="color:'+rateColor(p.completion_rate)+'">'+p.completion_rate+'%</div>'
+                     +  '<div class="p-meta">'+p.assignments+' assignment'+(p.assignments!==1?'s':'')+' · '+p.completed+'/'+p.enrollments+' done</div>'
+                     +  '<div class="p-bar"><span style="width:'+Math.min(p.completion_rate,100)+'%;background:'+rateColor(p.completion_rate)+'"></span></div>'
+                     +  '</button>';
+            });
+            const cards = document.getElementById('period-cards');
+            cards.innerHTML = html;
+            strip.classList.remove('hidden');
+
+            cards.querySelectorAll('.period-card').forEach(btn=>{
+                btn.addEventListener('click', ()=>{
+                    const key = btn.dataset.key;
+                    if(byFy){ onFyChange(key); return; }        // FY card → switch scope
+                    // Clicking the active quarter clears it (back to the full year).
+                    selectedQuarter = (selectedQuarter === key) ? 'all' : key;
+                    loadSummary(selectedFy);
+                });
+            });
+        }
+
+        function renderUntrackedToggle(){
+            const box = document.getElementById('include-untracked');
+            box.checked = includeUntracked;
+            const n = summary.kpis.untracked_users || 0;
+            const badge = document.getElementById('untracked-count');
+            // Only meaningful while they are being counted — with the switch off they
+            // are, by definition, absent from the figures.
+            badge.textContent = (includeUntracked && n) ? (n + ' untracked') : '';
+
+            // Before any roster is uploaded every user is untracked, so excluding them
+            // zeroes the whole page. Say why, instead of showing a wall of zeros.
+            const warn = document.getElementById('untracked-warning');
+            if(!includeUntracked && !summary.kpis.tracked_users){
+                warn.innerHTML = '<strong>No users are on the tracked roster yet.</strong> '
+                    + 'Every user in the data came from the API, so excluding untracked users leaves nothing to measure. '
+                    + 'Upload a roster (Email · Name · Department · Location · Role) under <em>Settings → Users</em> to populate these views.';
+                warn.classList.remove('hidden');
+            } else {
+                warn.classList.add('hidden');
+            }
+        }
+
+        function onUntrackedChange(checked){
+            includeUntracked = checked;
+            loadSummary(selectedFy);
+        }
 
         function renderKpis(){
             const k = summary.kpis;
@@ -494,6 +727,106 @@
             if(charts.byAssignment) charts.byAssignment.dispose();
             charts.byAssignment = echarts.init(dom);
             charts.byAssignment.setOption(byAssignmentOption(chartViews.byAssignment==='top10'?10:0));
+        }
+
+        // ── Department / Location / Role breakdown ──────────────────────────
+        function dimensionRows(){
+            return (summary.dimensions && summary.dimensions[currentDim]) || [];
+        }
+
+        function renderDimensionChart(){
+            const dom = document.getElementById('chart-dimension');
+            if(charts.dimension) charts.dimension.dispose();
+            charts.dimension = echarts.init(dom);
+            // Biggest group at the top: sort ascending, then let the category axis
+            // (which draws bottom-up) put the largest at the top.
+            const data = dimensionRows().slice()
+                .sort((a,b)=> a.enrollments - b.enrollments || a.completed - b.completed)
+                .slice(-12);
+            charts.dimension.setOption({
+                grid:{left:8,right:24,top:28,bottom:8,containLabel:true},
+                tooltip:{trigger:'axis',axisPointer:{type:'shadow'},
+                    formatter:p=>{
+                        const d = data[p[0].dataIndex];
+                        return h(d.value)+'<br/>Completed: <b>'+d.completed+'</b><br/>In Progress: '+d.in_progress
+                             + '<br/>Not Started: '+d.not_started+'<br/>Completion: <b>'+d.completion_rate+'%</b>';
+                    }},
+                legend:{top:0,left:'center',textStyle:{fontSize:11}},
+                xAxis:{type:'value',minInterval:1},
+                yAxis:{type:'category',data:data.map(d=>d.value),axisLabel:{width:120,overflow:'truncate',fontSize:11}},
+                series:['completed','in_progress','not_started'].map(s=>({
+                    name:STATUS_LABELS[s], type:'bar', stack:'total', barMaxWidth:22,
+                    itemStyle:{color:STATUS_COLORS[s]},
+                    data:data.map(d=>d[s])
+                }))
+            });
+        }
+
+        function renderDimension(){
+            document.getElementById('dim-hint').textContent =
+                'Progress by ' + DIM_LABELS[currentDim].toLowerCase() + '. Values come from the uploaded roster; '
+                + '“Unspecified” means the roster left the field blank'
+                + (includeUntracked ? '; “Untracked” means the user was never uploaded at all.' : '.');
+            renderDimensionChart();
+            renderDimensionTable();
+        }
+
+        function renderDimensionTable(){
+            const cols = COLS.dimension, st = sortState.dimension;
+            const rows = dimensionRows().slice().sort((a,b)=>{
+                let x=a[st.key], y=b[st.key];
+                if(typeof x==='string'||typeof y==='string'){ x=(x||'').toLowerCase(); y=(y||'').toLowerCase(); return x<y?-st.dir:x>y?st.dir:0; }
+                return ((x||0)-(y||0))*st.dir;
+            });
+            let html = '<table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr>';
+            cols.forEach(c=>{
+                const active = st.key===c.key;
+                const icon = active ? (st.dir===1?'▲':'▼') : '↕';
+                const label = (c.key==='value') ? DIM_LABELS[currentDim] : c.label;
+                html += '<th class="sortable px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap" onclick="sortDimension(\''+c.key+'\')">'+h(label)+' <span class="sort-icon'+(active?' active':'')+'">'+icon+'</span></th>';
+            });
+            html += '</tr></thead><tbody class="bg-white divide-y divide-gray-200">';
+            if(!rows.length){ html += '<tr><td colspan="'+cols.length+'" class="px-3 py-6 text-center text-gray-400">No rows</td></tr>'; }
+            rows.forEach(row=>{
+                html += '<tr>';
+                cols.forEach(c=>{
+                    const cell = c.bar ? barCell(row[c.key]||0) : h(row[c.key]);
+                    const strong = (c.key==='value') ? ' font-medium text-gray-900' : ' text-gray-600';
+                    html += '<td class="px-3 py-2.5 text-sm'+strong+'">'+cell+'</td>';
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            document.getElementById('table-dimension').innerHTML = html;
+        }
+
+        function sortDimension(key){
+            const st = sortState.dimension;
+            if(st.key===key) st.dir = -st.dir; else { st.key=key; st.dir = (COLS.dimension.find(c=>c.key===key).type==='num'? -1 : 1); }
+            renderDimensionTable();
+        }
+
+        function switchDim(dim){
+            currentDim = dim;
+            ['department','location','job_role'].forEach(d=>{
+                const btn = document.getElementById('dim-tab-'+d);
+                if(d===dim){ btn.classList.add('active','text-blue-600','border-blue-600'); btn.classList.remove('text-gray-500','border-transparent'); }
+                else { btn.classList.remove('active','text-blue-600','border-blue-600'); btn.classList.add('text-gray-500','border-transparent'); }
+            });
+            renderDimension();
+        }
+
+        function exportDimension(){
+            const cols = COLS.dimension;
+            const esc = v => '"' + String(v===null||v===undefined?'':v).replace(/"/g,'""') + '"';
+            let csv = cols.map(c=>esc(c.key==='value'?DIM_LABELS[currentDim]:c.label)).join(',') + '\n';
+            dimensionRows().forEach(row=>{ csv += cols.map(c=>esc(row[c.key])).join(',') + '\n'; });
+            const blob = new Blob([csv], {type:'text/csv'});
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            const scope = (summary.selected==='all')?'all-FY':('FY'+summary.selected_label + (summary.quarter?('-Q'+summary.quarter):''));
+            a.download = 'assignments-by-'+currentDim+'-'+scope+'.csv';
+            a.click();
         }
 
         function toggleChartView(which, view){
@@ -624,7 +957,10 @@
             document.getElementById('assignmentModalStats').innerHTML = '';
             document.getElementById('assignmentModalBody').innerHTML = '';
             try{
-                const res = await fetch('/api/assignment-progress/'+id);
+                // Same population as the page that opened this modal, so its totals
+                // match the row that was clicked.
+                const res = await fetch('/api/assignment-progress/'+id
+                    + '?include_untracked=' + (includeUntracked ? 'true' : 'false'));
                 const d = await res.json();
                 document.getElementById('assignmentModalTitle').textContent = d.title;
                 document.getElementById('assignmentModalTitle').title = d.title;
@@ -661,10 +997,14 @@
             document.getElementById('userModalSub').textContent = '';
             document.getElementById('userModalBody').innerHTML = '';
             try{
-                const res = await fetch('/api/fy-user/'+encodeURIComponent(email)+'?fy='+encodeURIComponent(selectedFy));
+                const res = await fetch('/api/fy-user/'+encodeURIComponent(email)
+                    + '?fy=' + encodeURIComponent(selectedFy)
+                    + '&quarter=' + encodeURIComponent(selectedQuarter));
                 const d = await res.json();
                 document.getElementById('userModalTitle').textContent = (d.user_name||email.split('@')[0]);
-                document.getElementById('userModalSub').textContent = email + ' · ' + d.assignments.length + ' assignment(s) in ' + (summary.selected==='all'?'all FYs':('FY '+summary.selected_label));
+                const scope = (summary.selected==='all') ? 'all FYs'
+                    : ('FY ' + summary.selected_label + (summary.quarter ? (' · ' + summary.quarter_label) : ''));
+                document.getElementById('userModalSub').textContent = email + ' · ' + d.assignments.length + ' assignment(s) in ' + scope;
                 let html = '';
                 d.assignments.forEach(a=>{
                     html += '<tr>'+

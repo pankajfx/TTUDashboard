@@ -52,6 +52,37 @@ def current_fy_start_year(now: datetime = None) -> int:
     return fy_start_year(now or datetime.now())
 
 
+# ── Financial-Year quarters ─────────────────────────────────────────────────
+# Q1 Apr-Jun, Q2 Jul-Sep, Q3 Oct-Dec, Q4 Jan-Mar (of the next calendar year).
+QUARTER_MONTHS = {1: (4, 6), 2: (7, 9), 3: (10, 12), 4: (1, 3)}
+QUARTER_RANGES = {1: 'Apr–Jun', 2: 'Jul–Sep', 3: 'Oct–Dec', 4: 'Jan–Mar'}
+
+
+def fy_quarter(dt: datetime) -> int:
+    """Which FY quarter (1-4) a datetime falls in. 2025-07-06 -> 2 (Jul-Sep)."""
+    for q, (lo, hi) in QUARTER_MONTHS.items():
+        if lo <= dt.month <= hi:
+            return q
+    return 4  # months 1-3 are handled by the (1, 3) entry; belt-and-braces
+
+
+def quarter_label(q: int) -> str:
+    """1 -> 'Q1 (Apr–Jun)'."""
+    return f"Q{q} ({QUARTER_RANGES.get(q, '')})"
+
+
+def parse_quarter(value):
+    """Turn a requested quarter ('1'..'4' | 'all' | '' | None) into 1-4 or None
+    (None = the whole financial year, no quarter filter)."""
+    if value in (None, '', 'all'):
+        return None
+    try:
+        q = int(value)
+    except (ValueError, TypeError):
+        return None
+    return q if q in QUARTER_MONTHS else None
+
+
 # ── Date / value parsing (tolerant of the messy API strings) ────────────────
 def parse_created(value: str):
     """Parse an assignment created_date / effective_from / effective_to. Accepts
@@ -294,6 +325,7 @@ def compute_assignment_progress(assignment: dict, api_index, history_index=None)
     window_start = parse_created(assignment.get("effective_from", "")) or created_dt
     window_end = parse_created(assignment.get("effective_to", ""))
     sy, label = (fy_of_datetime(created_dt) if created_dt else (None, "Unknown"))
+    q = fy_quarter(created_dt) if created_dt else None
 
     users = []
     completed = in_progress = stale = not_started = untouched = 0
@@ -343,6 +375,8 @@ def compute_assignment_progress(assignment: dict, api_index, history_index=None)
         "deadline": assignment.get("deadline", ""),
         "fy_start_year": sy,
         "fy_label": label,
+        "quarter": q,
+        "quarter_label": quarter_label(q) if q else "Unknown",
         "total": total,
         "completed": completed,
         "in_progress": in_progress,
@@ -387,22 +421,177 @@ def resolve_selected_fy(selected, assignments, now: datetime = None):
         return "all"
 
 
+# ── User profiles (department / location / role) + tracked-vs-untracked ─────
+# The uploaded roster is the authentic source of users. A user the API reports but
+# that was never uploaded is "untracked": present in the data, but with no
+# department / location / role and no confirmation they belong to the population
+# being measured. They can be excluded from every figure with one switch.
+UNTRACKED_BUCKET = "Untracked"
+UNSPECIFIED_BUCKET = "Unspecified"
+DIMENSIONS = ("department", "location", "job_role")
+
+
+def build_profile_index(users):
+    """email(lowercased) -> profile dict, from ``db.read_users()['users']``."""
+    index = {}
+    for u in users or []:
+        email = (u.get("email") or "").strip().lower()
+        if not email:
+            continue
+        index[email] = {
+            "name": (u.get("name") or "").strip(),
+            "department": (u.get("department") or "").strip(),
+            "location": (u.get("location") or "").strip(),
+            "job_role": (u.get("job_role") or "").strip(),
+            "tracked": bool(u.get("tracked")),
+        }
+    return index
+
+
+def is_tracked(email, profiles) -> bool:
+    p = (profiles or {}).get((email or "").strip().lower())
+    return bool(p and p.get("tracked"))
+
+
+def _bucket(email, profiles, dimension) -> str:
+    """Which department / location / role row a user's enrollment lands in.
+    Untracked users have no roster entry at all, so they get their own bucket
+    rather than being mixed into 'Unspecified' (which means "tracked, but the
+    upload left this field blank")."""
+    p = (profiles or {}).get((email or "").strip().lower())
+    if not p or not p.get("tracked"):
+        return UNTRACKED_BUCKET
+    return p.get(dimension) or UNSPECIFIED_BUCKET
+
+
+def _recount(p, users):
+    """Rebuild one assignment's bucket totals from a (possibly filtered) user list."""
+    completed = sum(1 for u in users if u["status"] == "completed")
+    in_progress = sum(1 for u in users if u["status"] == "in_progress")
+    not_started = sum(1 for u in users if u["status"] == "not_started")
+    total = len(users)
+    out = dict(p)
+    out.update({
+        "users": users,
+        "total": total,
+        "completed": completed,
+        "in_progress": in_progress,
+        "not_started": not_started,
+        "stale": sum(1 for u in users if u["stale"]),
+        "untouched": sum(1 for u in users if u["untouched"] and not u["stale"]),
+        "completion_rate": round(completed / total * 100, 2) if total else 0.0,
+    })
+    return out
+
+
+def drop_untracked(p, profiles):
+    """Same assignment with untracked enrollees removed from its user list and every
+    count rebuilt, so the KPIs, charts and tables all agree with the switch."""
+    return _recount(p, [u for u in p["users"] if is_tracked(u["email"], profiles)])
+
+
+def _period_row(key, label, sublabel, rows):
+    total = sum(p["total"] for p in rows)
+    completed = sum(p["completed"] for p in rows)
+    return {
+        "key": key,
+        "label": label,
+        "sublabel": sublabel,
+        "assignments": len(rows),
+        "enrollments": total,
+        "completed": completed,
+        "in_progress": sum(p["in_progress"] for p in rows),
+        "not_started": sum(p["not_started"] for p in rows),
+        "completion_rate": round(completed / total * 100, 2) if total else 0.0,
+    }
+
+
+def _build_periods(fy_scoped, resolved):
+    """The top-view strip that sits under the KPIs: the scope broken into its next
+    level down. A financial year breaks into its four quarters; 'all financial years'
+    breaks into one row per FY."""
+    if resolved == "all":
+        by_fy = defaultdict(list)
+        for p in fy_scoped:
+            by_fy[p["fy_start_year"]].append(p)
+        return [
+            _period_row(str(sy), f"FY {fy_label(sy)}", "", by_fy[sy])
+            for sy in sorted((sy for sy in by_fy if sy is not None), reverse=True)
+        ]
+    return [
+        _period_row(str(q), f"Q{q}", QUARTER_RANGES[q],
+                    [p for p in fy_scoped if p["quarter"] == q])
+        for q in (1, 2, 3, 4)
+    ]
+
+
+def _build_dimensions(scoped, profiles):
+    """Department-, location- and role-wise progress. One enrollment (a user in an
+    assignment) contributes one row's worth of counts to its bucket in each of the
+    three dimensions."""
+    out = {}
+    for dim in DIMENSIONS:
+        buckets = defaultdict(lambda: {
+            "value": "", "users": set(), "enrollments": 0,
+            "completed": 0, "in_progress": 0, "not_started": 0, "stale": 0,
+        })
+        for p in scoped:
+            for u in p["users"]:
+                b = buckets[_bucket(u["email"], profiles, dim)]
+                b["users"].add(u["email"])
+                b["enrollments"] += 1
+                b[u["status"]] += 1
+                if u["stale"]:
+                    b["stale"] += 1
+        rows = []
+        for value, b in buckets.items():
+            b["value"] = value
+            b["users_count"] = len(b.pop("users"))
+            e = b["enrollments"]
+            b["completion_rate"] = round(b["completed"] / e * 100, 2) if e else 0.0
+            rows.append(b)
+        rows.sort(key=lambda r: (r["enrollments"], r["completed"]), reverse=True)
+        out[dim] = rows
+    return out
+
+
 def build_summary(assignments, api_data, selected="current", now: datetime = None,
-                  history_index=None) -> dict:
+                  history_index=None, quarter=None, profiles=None,
+                  include_untracked=True) -> dict:
     """Full payload for the FY dashboard for the given scope.
 
     ``history_index`` (from ``build_history_index(db.read_completion_history())``)
     supplies prior-cycle completion dates the live API has overwritten, so each
-    assignment is classified against the full bucket of dates ever observed."""
+    assignment is classified against the full bucket of dates ever observed.
+
+    ``profiles`` (from ``build_profile_index(db.read_users()['users'])``) carries each
+    user's department / location / role and whether they are on the tracked roster.
+    ``quarter`` (1-4, or None for the whole year) narrows a financial-year scope to
+    one quarter; it is ignored when the scope is 'all'. ``include_untracked=False``
+    drops every enrollment belonging to a user who was never uploaded, from the KPIs
+    down to the per-assignment rows."""
     index = build_api_index(api_data)
     resolved = resolve_selected_fy(selected, assignments, now)
+    profiles = profiles or {}
+    q = None if resolved == "all" else parse_quarter(quarter)
 
     # progress for every assignment (needed to filter + aggregate)
     progressed = [compute_assignment_progress(a, index, history_index) for a in assignments]
+    if not include_untracked:
+        # Drop untracked enrollees up front so every downstream aggregate — KPIs,
+        # charts, per-assignment rows, dimensions — is computed from the same
+        # population and cannot disagree.
+        progressed = [drop_untracked(p, profiles) for p in progressed]
+
     if resolved == "all":
-        scoped = progressed
+        fy_scoped = progressed
     else:
-        scoped = [p for p in progressed if p["fy_start_year"] == resolved]
+        fy_scoped = [p for p in progressed if p["fy_start_year"] == resolved]
+
+    # The period strip always describes the whole FY scope, so the quarter cards
+    # stay visible (and comparable) while one of them is selected.
+    periods = _build_periods(fy_scoped, resolved)
+    scoped = fy_scoped if q is None else [p for p in fy_scoped if p["quarter"] == q]
 
     # ── per-assignment rows (drop the heavy per-user list for the table) ──
     assignment_rows = [{k: v for k, v in p.items() if k != "users"} for p in scoped]
@@ -451,8 +640,20 @@ def build_summary(assignments, api_data, selected="current", now: datetime = Non
         ac = r["assignments_count"]
         r["courses_count"] = len(r.pop("courses"))
         r["completion_rate"] = round(r["completed"] / ac * 100, 2) if ac else 0.0
+        # Attach the roster profile so the users table can show/filter on it. The
+        # roster name wins over the API's Participant_Name when both are present.
+        prof = profiles.get(r["email"].lower(), {})
+        r["department"] = prof.get("department", "")
+        r["location"] = prof.get("location", "")
+        r["job_role"] = prof.get("job_role", "")
+        r["tracked"] = bool(prof.get("tracked"))
+        if prof.get("name"):
+            r["name"] = prof["name"]
         user_rows.append(r)
     user_rows.sort(key=lambda r: (r["assignments_count"], r["completion_rate"]), reverse=True)
+
+    # ── dimension aggregation (department / location / role) ──
+    dimensions = _build_dimensions(scoped, profiles)
 
     # ── KPIs ──
     total_assignments = len(scoped)
@@ -460,6 +661,7 @@ def build_summary(assignments, api_data, selected="current", now: datetime = Non
     total_completed = sum(p["completed"] for p in scoped)
     total_stale = sum(p["stale"] for p in scoped)
     most_assigned = max(course_rows, key=lambda r: r["assignment_count"], default=None)
+    tracked_users = sum(1 for r in user_rows if r["tracked"])
 
     kpis = {
         "total_assignments": total_assignments,
@@ -467,6 +669,8 @@ def build_summary(assignments, api_data, selected="current", now: datetime = Non
         "avg_enrollment": round(total_enrollments / total_assignments, 1) if total_assignments else 0,
         "courses_covered": len(course_rows),
         "unique_users": len(user_rows),
+        "tracked_users": tracked_users,
+        "untracked_users": len(user_rows) - tracked_users,
         "overall_completion_rate": round(total_completed / total_enrollments * 100, 2) if total_enrollments else 0.0,
         "stale_completions": total_stale,
         "most_assigned_course": (
@@ -488,8 +692,14 @@ def build_summary(assignments, api_data, selected="current", now: datetime = Non
         "current_fy": current_fy_start_year(now),
         "selected": ("all" if resolved == "all" else resolved),
         "selected_label": ("All Financial Years" if resolved == "all" else fy_label(resolved)),
+        "quarter": q,
+        "quarter_label": quarter_label(q) if q else "Full year",
+        "period_kind": ("fy" if resolved == "all" else "quarter"),
+        "periods": periods,
+        "include_untracked": include_untracked,
         "kpis": kpis,
         "assignments": assignment_rows,
         "courses": course_rows,
         "users": user_rows,
+        "dimensions": dimensions,
     }

@@ -12,7 +12,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from functools import wraps
-from email_service import send_course_assignment_email, send_deadline_reminder_email, send_course_removal_email
+from email_service import (send_course_assignment_email, send_deadline_reminder_email,
+                           send_course_removal_email, send_course_completion_email)
 import assignment_analytics as aa
 import db
 import openpyxl
@@ -308,48 +309,82 @@ def _normalize_dt(value):
     dt = aa.parse_created(str(value or '').strip())
     return dt.strftime('%Y-%m-%d %H:%M:%S') if dt else ''
 
+# Default deadline when an assignment is created without one: 15 days from creation.
+DEFAULT_DEADLINE_DAYS = 15
+
+
+def _default_deadline(created_dt=None):
+    """Deadline to use when the admin leaves the field blank: DEFAULT_DEADLINE_DAYS
+    after the assignment is created. Returned in the 'YYYY-MM-DD' shape the deadline
+    field carries everywhere else (emails, reminders, the UI)."""
+    base = created_dt or datetime.now()
+    return (base + timedelta(days=DEFAULT_DEADLINE_DAYS)).strftime('%Y-%m-%d')
+
+
+def _user_profiles():
+    """email(lowercased) -> {name, department, location, job_role, tracked} for the
+    analytics engine. The uploaded roster is the authentic user list; anyone the API
+    reports who was never uploaded comes back tracked=False (untracked)."""
+    try:
+        return aa.build_profile_index(load_json_file(USERS_FILE, {'users': []}).get('users', []))
+    except Exception as e:
+        logger.error(f"Error building user profile index: {e}")
+        return {}
+
+
 def sync_users_from_api():
-    """Sync users from API response with local users file (no duplicates)"""
+    """Add users the API reports but the local registry has never seen.
+
+    These arrive with source='api' and tracked=0 — "untracked". They are NOT part of
+    the authentic roster (which is what the admin uploads/adds), so they carry no
+    department / location / role and the dashboards can exclude them with one switch.
+    An existing user is never touched here: a bulk upload that already augmented them
+    with a profile keeps it, and keeps tracked=1."""
     try:
         # Load API data
         data = load_data()
-        
+
         # Extract unique user emails from API
         api_users = {}
         for record in data:
             email = record.get('User_Mail_ID', '').strip()
             name = record.get('Participant_Name', '').strip()
-            if email and email not in api_users:
-                api_users[email] = name
-        
+            if email and email.lower() not in api_users:
+                api_users[email.lower()] = (email, name)
+
         # Load existing local users
         users_data = load_json_file(USERS_FILE, {'users': []})
         existing_users = users_data.get('users', [])
-        
-        # Create set of existing emails for quick lookup
-        existing_emails = {user['email'] for user in existing_users}
-        
+
+        # Case-insensitive lookup: the API and an uploaded roster can spell the same
+        # address with different casing, and they must not become two user rows.
+        existing_emails = {(u.get('email') or '').strip().lower() for u in existing_users}
+
         # Add new users from API that don't exist locally
         new_users_added = 0
-        for email, name in api_users.items():
-            if email not in existing_emails:
+        for key, (email, name) in api_users.items():
+            if key not in existing_emails:
                 existing_users.append({
                     'email': email,
                     'name': name,
                     'source': 'api',
-                    'added_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    'added_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'department': '',
+                    'location': '',
+                    'job_role': '',
+                    'tracked': False,
                 })
                 new_users_added += 1
-        
+
         # Save updated users list
         if new_users_added > 0:
             users_data['users'] = existing_users
             save_json_file(USERS_FILE, users_data)
-            print(f"Synced {new_users_added} new users from API")
-        
+            logger.info(f"Synced {new_users_added} new (untracked) users from API")
+
         return new_users_added
     except Exception as e:
-        print(f"Error syncing users from API: {e}")
+        logger.error(f"Error syncing users from API: {e}")
         return 0
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -417,47 +452,142 @@ def get_users():
 @csrf_required
 @json_required
 def add_user():
-    """Add a new user"""
+    """Add a new user to the tracked roster (optionally with their profile)."""
     data = request.get_json()
-    email = data.get('email')
-    
+    email = (data.get('email') or '').strip()
+
     if not email:
         return jsonify({'error': 'Email is required'}), 400
-    
+
     users_data = load_json_file(USERS_FILE, {'users': []})
     users = users_data.get('users', [])
-    
+
     # Check if user already exists (case-insensitive)
     email_lower = email.lower()
-    if any(u['email'].lower() == email_lower for u in users):
-        return jsonify({'error': f'User with email {email} already exists'}), 409
-    
+    existing = next((u for u in users if (u.get('email') or '').lower() == email_lower), None)
+    if existing:
+        # An API-synced (untracked) row is not a real duplicate — it is the same
+        # person waiting for a profile. Promote it to the roster instead of
+        # rejecting the admin's entry.
+        if existing.get('tracked'):
+            return jsonify({'error': f'User with email {email} already exists'}), 409
+        db.upsert_user_profiles([{
+            'email': existing['email'],
+            'name': (data.get('name') or '').strip(),
+            'department': (data.get('department') or '').strip(),
+            'location': (data.get('location') or '').strip(),
+            'job_role': (data.get('job_role') or '').strip(),
+        }])
+        updated = next((u for u in db.read_users().get('users', [])
+                        if (u.get('email') or '').lower() == email_lower), None)
+        return jsonify({'message': 'Existing API user promoted to tracked roster',
+                        'user': updated, 'promoted': True})
+
     # Add new user
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     users.append({
         'email': email,
-        'name': '',
+        'name': (data.get('name') or '').strip(),
         'source': 'manual',
-        'added_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        'added_date': now,
+        'department': (data.get('department') or '').strip(),
+        'location': (data.get('location') or '').strip(),
+        'job_role': (data.get('job_role') or '').strip(),
+        'tracked': True,
+        'updated_date': now,
     })
-    
+
     users_data['users'] = users
     if save_json_file(USERS_FILE, users_data):
         return jsonify({'message': 'User added successfully', 'user': users[-1]})
     else:
         return jsonify({'error': 'Failed to save user'}), 500
 
+# Accepted spreadsheet headings for each roster field, lowercased. The upload is
+# matched on these rather than on column position, so admins can reorder columns or
+# omit the optional ones entirely.
+_ROSTER_HEADERS = {
+    'email': ('email', 'e-mail', 'email address', 'email id', 'mail', 'user_mail_id',
+              'user mail id'),
+    'name': ('name', 'full name', 'participant name', 'employee name', 'user name'),
+    'department': ('department', 'dept', 'function', 'business unit'),
+    'location': ('location', 'site', 'office', 'branch', 'plant', 'city'),
+    'job_role': ('role', 'job role', 'designation', 'position', 'job title', 'title',
+                 'grade'),
+}
+# Fallback when the sheet has no recognisable header row (the legacy format was a
+# bare column of emails, so column A must stay the email column).
+_ROSTER_POSITIONAL = ('email', 'name', 'department', 'location', 'job_role')
+
+
+def _roster_column_map(first_row):
+    """Map column index -> roster field from a sheet's first row, or None if that row
+    is not a header (i.e. it already holds data)."""
+    mapping = {}
+    for idx, cell in enumerate(first_row or ()):
+        text = str(cell or '').strip().lower()
+        if not text:
+            continue
+        for field, aliases in _ROSTER_HEADERS.items():
+            if text in aliases and field not in mapping.values():
+                mapping[idx] = field
+                break
+    # A header row must at least name the email column; otherwise treat the sheet as
+    # headerless data in the legacy positional layout.
+    return mapping if 'email' in mapping.values() else None
+
+
+def _parse_roster_sheet(sheet):
+    """Parse an uploaded roster into ({email, name, department, location, job_role}, ...)
+    plus the list of unparseable email values. Understands both a headed sheet (in any
+    column order) and the legacy headerless 'emails in column A' sheet."""
+    email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+    rows = list(sheet.iter_rows(min_row=1, values_only=True))
+    if not rows:
+        return [], []
+
+    colmap = _roster_column_map(rows[0])
+    if colmap is not None:
+        data_rows = rows[1:]
+    else:
+        colmap = {i: f for i, f in enumerate(_ROSTER_POSITIONAL)}
+        data_rows = rows
+
+    parsed, invalid = [], []
+    for row in data_rows:
+        record = {f: '' for f in _ROSTER_POSITIONAL}
+        for idx, field in colmap.items():
+            if idx < len(row):
+                record[field] = str(row[idx] or '').strip()
+        email = record['email']
+        if not email:
+            continue  # blank/spacer row
+        if not email_pattern.match(email):
+            invalid.append(email)
+            continue
+        parsed.append(record)
+    return parsed, invalid
+
+
 @app.route('/api/settings/users/bulk-upload', methods=['POST'])
 @admin_required
 @csrf_required
 def bulk_upload_users():
-    """Bulk upload users from Excel file"""
+    """Import the authentic user roster from Excel — email plus optional name,
+    department, location and role.
+
+    The upload is the source of truth for *who* is being tracked and for their
+    profile. An email already in the registry (including one the API sync created) is
+    augmented in place with whatever the sheet supplies and promoted to tracked;
+    unknown emails are inserted. Users the sheet does not mention are left exactly as
+    they are — an API-only user stays untracked, with no profile."""
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
-    
+
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
-    
+
     if not file.filename.endswith(('.xlsx', '.xls')):
         return jsonify({'error': 'Invalid file format. Please upload an Excel file (.xlsx or .xls)'}), 400
 
@@ -466,70 +596,51 @@ def bulk_upload_users():
         return jsonify({'error': 'Invalid file content. File is not a valid Excel workbook.'}), 400
 
     try:
-        # Read Excel file
         workbook = openpyxl.load_workbook(BytesIO(file_bytes))
         sheet = workbook.active
+        parsed, invalid_emails = _parse_roster_sheet(sheet)
 
-        # Email validation regex
-        email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-
-        valid_emails = []
-        invalid_emails = []
-
-        # Parse rows for emails (check first column)
-        for row in sheet.iter_rows(min_row=1, values_only=True):
-            if row[0]:  # If first cell has value
-                email = str(row[0]).strip()
-                if email_pattern.match(email):
-                    valid_emails.append(email)
-                else:
-                    invalid_emails.append(email)
-
-        if not valid_emails:
+        if not parsed:
             return jsonify({
                 'error': 'No valid email addresses found in file',
                 'invalid_emails': invalid_emails
             }), 400
-        
-        # Load existing users
-        users_data = load_json_file(USERS_FILE, {'users': []})
-        users = users_data.get('users', [])
-        existing_emails = {u['email'].lower() for u in users}
-        
-        # Add new users (ignore duplicates)
-        added_users = []
-        duplicate_users = []
-        
-        for email in valid_emails:
-            email_lower = email.lower()
-            if email_lower not in existing_emails:
-                new_user = {
-                    'email': email,
-                    'name': '',
-                    'source': 'manual',
-                    'added_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                }
-                users.append(new_user)
-                added_users.append(email)
-                existing_emails.add(email_lower)
-            else:
-                duplicate_users.append(email)
-        
-        # Save updated users
-        users_data['users'] = users
-        if save_json_file(USERS_FILE, users_data):
-            return jsonify({
-                'message': f'Successfully processed {len(valid_emails)} email(s)',
-                'added_count': len(added_users),
-                'added_users': added_users,
-                'duplicate_count': len(duplicate_users),
-                'duplicate_users': duplicate_users,
-                'invalid_count': len(invalid_emails),
-                'invalid_emails': invalid_emails
-            })
-        else:
-            return jsonify({'error': 'Failed to save users'}), 500
-            
+
+        # Last row wins if the same person appears twice in one sheet.
+        deduped = {}
+        for r in parsed:
+            deduped[r['email'].lower()] = r
+
+        existing = {(u.get('email') or '').lower()
+                    for u in load_json_file(USERS_FILE, {'users': []}).get('users', [])}
+        added_users = [r['email'] for k, r in deduped.items() if k not in existing]
+        augmented_users = [r['email'] for k, r in deduped.items() if k in existing]
+
+        result = db.upsert_user_profiles(list(deduped.values()))
+        profiled = sum(
+            1 for r in deduped.values()
+            if r['department'] or r['location'] or r['job_role'])
+
+        logger.info(
+            f"Roster upload by {session.get('username')}: "
+            f"{result['added']} added, {result['updated']} augmented, "
+            f"{len(invalid_emails)} invalid")
+
+        return jsonify({
+            'message': f'Successfully processed {len(deduped)} user(s)',
+            'added_count': result['added'],
+            'added_users': added_users,
+            'updated_count': result['updated'],
+            'updated_users': augmented_users,
+            'profiled_count': profiled,
+            # Kept for the existing UI copy: an email already on file is no longer
+            # "skipped as a duplicate", it is augmented — so report it as such.
+            'duplicate_count': result['updated'],
+            'duplicate_users': augmented_users,
+            'invalid_count': len(invalid_emails),
+            'invalid_emails': invalid_emails
+        })
+
     except Exception as e:
         logger.error(f"Error processing Excel file (users): {e}")
         return jsonify({'error': 'Failed to process file'}), 500
@@ -670,19 +781,24 @@ def create_assignment():
     data = request.get_json()
     course_name = data.get('course_name')
     user_emails = data.get('user_emails', [])[:500]
-    deadline = data.get('deadline')
+    deadline = (data.get('deadline') or '').strip()
     notify_email = data.get('notify_email', False)
 
-    if not course_name or not user_emails or not deadline:
-        return jsonify({'error': 'Course name, users, and deadline are required'}), 400
+    if not course_name or not user_emails:
+        return jsonify({'error': 'Course name and users are required'}), 400
 
     # Validity window: completions only count within [effective_from, effective_to].
     # effective_from defaults to the creation time; effective_to is optional (open).
-    created = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    created_dt = datetime.now()
+    created = created_dt.strftime('%Y-%m-%d %H:%M:%S')
     effective_from = _normalize_dt(data.get('effective_from')) or created
     effective_to = _normalize_dt(data.get('effective_to'))
     if effective_to and effective_from > effective_to:
         return jsonify({'error': 'Effective-from must be on or before effective-to'}), 400
+
+    # No deadline given → 15 days from now (DEFAULT_DEADLINE_DAYS).
+    if not deadline:
+        deadline = _default_deadline(created_dt)
 
     assignments_data = load_json_file(ASSIGNMENTS_FILE, {'assignments': []})
     assignments = assignments_data.get('assignments', [])
@@ -706,6 +822,11 @@ def create_assignment():
     if not save_json_file(ASSIGNMENTS_FILE, assignments_data):
         return jsonify({'error': 'Failed to save assignment'}), 500
 
+    # Start watching for completions. Anyone already complete right now (which a
+    # backdated effective_from deliberately credits) is recorded as pre-existing so
+    # they are not congratulated for something they finished before this existed.
+    baseline_assignment_notifications(assignment)
+
     # Dispatch email notifications in background if requested
     email_job_id = None
     if notify_email:
@@ -716,6 +837,8 @@ def create_assignment():
     return jsonify({
         'message': 'Assignment created successfully',
         'assignment': assignment,
+        'deadline': deadline,
+        'deadline_defaulted': not (data.get('deadline') or '').strip(),
         'notify_email': notify_email,
         'email_job_id': email_job_id,
         'email_total': len(user_emails) if notify_email else 0
@@ -937,6 +1060,14 @@ def update_assignment(assignment_id):
         if not save_json_file(ASSIGNMENTS_FILE, assignments_data):
             return jsonify({'error': 'Failed to save assignment'}), 500
 
+        # Keep the completion-notification ledger in step with the roster change:
+        #  • a user ADDED who has already completed the course inside the window is
+        #    suppressed — they finished before they were assigned it, so there is no
+        #    completion event to congratulate (same rule as the creation baseline);
+        #  • a user REMOVED has their row dropped, so if they are re-added later and
+        #    then complete, that genuinely new completion is still announced.
+        sync_assignment_notifications(assignment, added_users, removed_users)
+
         # Dispatch email notifications in background if requested
         email_job_id = None
         email_total = 0
@@ -971,12 +1102,16 @@ def delete_assignment(assignment_id):
     """Delete a course assignment"""
     assignments_data = load_json_file(ASSIGNMENTS_FILE, {'assignments': []})
     assignments = assignments_data.get('assignments', [])
-    
+
     # Remove assignment
     assignments = [a for a in assignments if a.get('id') != assignment_id]
     assignments_data['assignments'] = assignments
-    
+
     if save_json_file(ASSIGNMENTS_FILE, assignments_data):
+        # Drop the completion-notification rows too. Ids are minted as max+1, so a
+        # deleted id can never be reused — but leaving the rows behind would keep a
+        # dead assignment's "already congratulated" state around forever.
+        db.delete_notifications_for_assignment(assignment_id)
         return jsonify({'message': 'Assignment deleted successfully'})
     else:
         return jsonify({'error': 'Failed to delete assignment'}), 500
@@ -990,18 +1125,23 @@ def bulk_upload_assignment():
         return jsonify({'error': 'No file provided'}), 400
     
     course_name = request.form.get('course_name')
-    deadline = request.form.get('deadline')
+    deadline = (request.form.get('deadline') or '').strip()
     notify_email = request.form.get('notify_email', 'false').lower() == 'true'
 
-    if not course_name or not deadline:
-        return jsonify({'error': 'Course name and deadline are required'}), 400
+    if not course_name:
+        return jsonify({'error': 'Course name is required'}), 400
 
     # Validity window (optional): effective_from defaults to creation time below.
-    created = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    created_dt = datetime.now()
+    created = created_dt.strftime('%Y-%m-%d %H:%M:%S')
     effective_from = _normalize_dt(request.form.get('effective_from')) or created
     effective_to = _normalize_dt(request.form.get('effective_to'))
     if effective_to and effective_from > effective_to:
         return jsonify({'error': 'Effective-from must be on or before effective-to'}), 400
+
+    # No deadline given → 15 days from now (DEFAULT_DEADLINE_DAYS).
+    if not deadline:
+        deadline = _default_deadline(created_dt)
     
     file = request.files['file']
     if file.filename == '':
@@ -1045,16 +1185,24 @@ def bulk_upload_assignment():
         users = users_data.get('users', [])
         existing_emails = {u['email'].lower() for u in users}
         
-        # Add new users if they don't exist
+        # Add new users if they don't exist. An email the admin explicitly assigns is
+        # part of the roster, so it lands tracked (with an empty profile until a
+        # roster upload fills in department / location / role).
         new_users_added = []
         for email in valid_emails:
             email_lower = email.lower()
             if email_lower not in existing_emails:
+                now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 new_user = {
                     'email': email,
                     'name': '',
                     'source': 'manual',
-                    'added_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    'added_date': now,
+                    'department': '',
+                    'location': '',
+                    'job_role': '',
+                    'tracked': True,
+                    'updated_date': now,
                 }
                 users.append(new_user)
                 new_users_added.append(email)
@@ -1086,6 +1234,9 @@ def bulk_upload_assignment():
         
         if not save_json_file(ASSIGNMENTS_FILE, assignments_data):
             return jsonify({'error': 'Failed to save assignment'}), 500
+
+        # Watch for completions from here on (see create_assignment).
+        baseline_assignment_notifications(assignment)
 
         # Dispatch email notifications in background if requested
         email_job_id = None
@@ -1237,6 +1388,186 @@ def _history_index():
         return {}
 
 
+# ── Completion notifications ────────────────────────────────────────────────
+# Every API sync asks: has anyone completed a course that an assignment requires of
+# them, and have we told them yet? The completion_notifications ledger answers the
+# second half — one row per (assignment, user), so a congratulations email is sent
+# exactly once no matter how many times the same completion is re-observed.
+#
+# Ordering matters. An assignment is "baselined" the moment it starts being watched
+# (at creation, or on the first sync for assignments that predate this feature):
+# whoever is already Completed then is recorded as pre_existing and never emailed.
+# Only a completion that appears *after* the baseline is an event worth announcing.
+NOTIFY_ON_COMPLETION = os.environ.get('NOTIFY_ON_COMPLETION', 'true').lower() == 'true'
+_notify_lock = threading.Lock()
+
+
+def _completion_candidates(assignment, api_index, history_index, email_to_name):
+    """Everyone who currently counts as Completed for this assignment (i.e. finished
+    inside its validity window), as notification-ledger candidate dicts."""
+    prog = aa.compute_assignment_progress(assignment, api_index, history_index)
+    out = []
+    for u in prog['users']:
+        if u['status'] != 'completed':
+            continue
+        email = u['email']
+        out.append({
+            'assignment_id': assignment.get('id'),
+            'email': email,
+            'course': prog['course_name'],
+            'completion_date': u['completion_date'],
+            'deadline': assignment.get('deadline') or '',
+            'name': (u['name'] or email_to_name.get(email.lower()) or email.split('@')[0]),
+        })
+    return out
+
+
+def _email_to_name():
+    return {(u.get('email') or '').lower(): (u.get('name') or '')
+            for u in load_json_file(USERS_FILE, {'users': []}).get('users', [])}
+
+
+def _warm_data_or_none():
+    """The cached API snapshot, or None if the cache is not warm yet.
+
+    Unlike load_data(), this NEVER falls back to a synchronous API fetch — it is called
+    on the assignment-creation request path, where a 3+ minute blocking fetch (which is
+    what load_data() does on a cold start with no cache) would hang the admin's browser."""
+    if USE_LOCAL_DATA:
+        return load_data()
+    with _cache_lock:
+        return _data_cache
+
+
+def baseline_assignment_notifications(assignment, api_data=None):
+    """Start watching one assignment, suppressing congratulations for users who have
+    already completed it. Called when an assignment is created — so a backdated
+    validity window (which instantly credits old completions) does not fire a burst
+    of emails at people who finished months ago."""
+    if not NOTIFY_ON_COMPLETION:
+        return 0
+    try:
+        data = api_data if api_data is not None else _warm_data_or_none()
+        if data is None:
+            # Cold start, cache not populated yet. Leave the assignment un-baselined:
+            # the next sync's dispatcher baselines it against fresh data, which
+            # suppresses whoever is already complete just the same.
+            logger.info(
+                f"Assignment {assignment.get('id')}: cache not warm, deferring "
+                f"notification baseline to the next sync")
+            return 0
+        candidates = _completion_candidates(
+            assignment, aa.build_api_index(data), _history_index(), _email_to_name())
+        seeded = db.set_notification_baseline(assignment.get('id'), candidates)
+        if seeded:
+            logger.info(
+                f"Assignment {assignment.get('id')}: {seeded} user(s) already complete "
+                f"at creation — recorded, not emailed")
+        return seeded
+    except Exception as e:
+        logger.error(f"Error baselining assignment notifications: {e}")
+        return 0
+
+
+def sync_assignment_notifications(assignment, added_users, removed_users):
+    """Reconcile the notification ledger with an edited assignment roster (see the
+    call site in update_assignment). Best-effort — never fails the update."""
+    if not NOTIFY_ON_COMPLETION:
+        return
+    try:
+        aid = assignment.get('id')
+        for email in (removed_users or ()):
+            db.settle_notification(aid, email, sent=False)   # deletes the row
+        if not added_users:
+            return
+        data = _warm_data_or_none()
+        if data is None:
+            return   # cache cold; the next sync baselines/claims against fresh data
+        added = set(added_users)
+        already_done = [
+            c for c in _completion_candidates(
+                assignment, aa.build_api_index(data), _history_index(), _email_to_name())
+            if c['email'] in added]
+        n = db.suppress_completion_notifications(already_done)
+        if n:
+            logger.info(f"Assignment {aid}: {n} newly-added user(s) already complete "
+                        f"— recorded, not emailed")
+    except Exception as e:
+        logger.error(f"Error syncing assignment notifications: {e}")
+
+
+def dispatch_completion_notifications(api_data=None):
+    """Congratulate every user who has newly completed an assigned course.
+
+    Runs after each cache refresh. Non-blocking for callers that hold no lock: a pass
+    already under way makes this a no-op rather than queueing a second one."""
+    if not NOTIFY_ON_COMPLETION:
+        return {'sent': 0, 'failed': 0, 'skipped': 0}
+    if not _notify_lock.acquire(blocking=False):
+        logger.info("Completion notification pass already running, skipping")
+        return {'sent': 0, 'failed': 0, 'skipped': 0}
+
+    try:
+        data = api_data if api_data is not None else load_data()
+        assignments = load_json_file(ASSIGNMENTS_FILE, {'assignments': []}).get('assignments', [])
+        if not assignments:
+            return {'sent': 0, 'failed': 0, 'skipped': 0}
+
+        api_index = aa.build_api_index(data)
+        history_index = _history_index()
+        email_to_name = _email_to_name()
+        baselined = db.baselined_assignment_ids()
+
+        candidates = []
+        for a in assignments:
+            aid = a.get('id')
+            done = _completion_candidates(a, api_index, history_index, email_to_name)
+            if aid not in baselined:
+                # First time this assignment is watched (it predates the feature, or
+                # was created while notifications were switched off). Everyone already
+                # finished is recorded silently; only later completions get a mail.
+                db.set_notification_baseline(aid, done)
+                continue
+            candidates.extend(done)
+
+        claimed = db.claim_completion_notifications(candidates)
+        if not claimed:
+            return {'sent': 0, 'failed': 0, 'skipped': 0}
+
+        logger.info(f"Completion notifications: dispatching {len(claimed)} email(s)")
+        sent = failed = 0
+        with ThreadPoolExecutor(max_workers=_EMAIL_WORKERS) as pool:
+            futures = {pool.submit(_send_completion_email, c): c for c in claimed}
+            for future in as_completed(futures):
+                c = futures[future]
+                try:
+                    ok = future.result()
+                except Exception as e:
+                    logger.error(f"Completion email error for {c['email']}: {e}")
+                    ok = False
+                # Success is recorded so it is never re-sent; failure releases the
+                # claim so the next sync tries again.
+                db.settle_notification(c['assignment_id'], c['email'], ok)
+                if ok:
+                    sent += 1
+                else:
+                    failed += 1
+
+        logger.info(f"Completion notifications: {sent} sent, {failed} failed")
+        return {'sent': sent, 'failed': failed, 'skipped': len(candidates) - len(claimed)}
+    except Exception as e:
+        logger.error(f"Error dispatching completion notifications: {e}")
+        return {'sent': 0, 'failed': 0, 'skipped': 0}
+    finally:
+        _notify_lock.release()
+
+
+def _send_completion_email(c):
+    return send_course_completion_email(
+        user_email=c['email'], user_name=c['name'], course_name=c['course'],
+        completion_date=c['completion_date'], deadline=c.get('deadline'))
+
+
 def fetch_fresh_data_from_api():
     """Fetch fresh data from API (blocking call)"""
     logger.info("Fetching fresh data from API (this may take 3+ minutes)...")
@@ -1282,6 +1613,12 @@ def refresh_cache_background():
         # Harvest this snapshot's completions into the append-only ledger so
         # prior-cycle dates survive the API overwriting its single latest value.
         record_completion_history(data, now)
+        # Then congratulate anyone who has newly finished a course assigned to them.
+        # Best-effort: an email problem must never fail the refresh.
+        try:
+            dispatch_completion_notifications(data)
+        except Exception as e:
+            logger.error(f"Completion notification pass failed: {e}")
 
         logger.info(f"Background cache refresh completed at {now.strftime('%Y-%m-%d %H:%M:%S')}")
     except Exception as e:
@@ -1326,6 +1663,11 @@ def initialize_cache():
         # Capture the loaded snapshot's completions in case the app was down when
         # the API last changed (idempotent — dedup'd by the ledger's primary key).
         record_completion_history(data, timestamp)
+        # Catch up on completions that landed while the app was down, and baseline
+        # any assignment not yet watched. Off the startup path so a slow SMTP server
+        # can't delay the server coming up.
+        threading.Thread(target=dispatch_completion_notifications, args=(data,),
+                         daemon=True).start()
 
         # Check if cache is too old
         age_minutes = (datetime.now() - timestamp).total_seconds() / 60
@@ -1599,6 +1941,13 @@ def _load_assignments():
     return load_json_file(ASSIGNMENTS_FILE, {'assignments': []}).get('assignments', [])
 
 
+def _include_untracked_arg():
+    """?include_untracked=false hides users who are in the API but not on the uploaded
+    roster. Anything other than an explicit 'false'/'0'/'no' means include them."""
+    raw = (request.args.get('include_untracked') or 'true').strip().lower()
+    return raw not in ('false', '0', 'no')
+
+
 @app.route('/assignments-dashboard')
 @login_required
 def assignments_dashboard():
@@ -1609,11 +1958,21 @@ def assignments_dashboard():
 @app.route('/api/assignments-summary')
 @login_required
 def api_assignments_summary():
-    """Full FY dashboard payload for a scope (?fy=current|all|<start_year>)."""
+    """Full FY dashboard payload for a scope.
+
+    ?fy=current|all|<start_year>  — financial year
+    ?quarter=1..4|all             — narrow an FY scope to one of its quarters
+    ?include_untracked=true|false — count users who are in the API but not on the
+                                    uploaded roster
+    """
     try:
         fy = request.args.get('fy', 'current')
-        summary = aa.build_summary(_load_assignments(), load_data(), selected=fy,
-                                   history_index=_history_index())
+        summary = aa.build_summary(
+            _load_assignments(), load_data(), selected=fy,
+            history_index=_history_index(),
+            quarter=request.args.get('quarter'),
+            profiles=_user_profiles(),
+            include_untracked=_include_untracked_arg())
         return jsonify(summary)
     except Exception:
         import traceback
@@ -1630,7 +1989,22 @@ def api_assignment_progress(assignment_id):
         if not assignment:
             return jsonify({'error': 'Assignment not found'}), 404
         index = aa.build_api_index(load_data())
-        return jsonify(aa.compute_assignment_progress(assignment, index, _history_index()))
+        profiles = _user_profiles()
+        prog = aa.compute_assignment_progress(assignment, index, _history_index())
+        # Same population as the dashboard that opened this modal, so the modal's
+        # totals always match the row that was clicked.
+        if not _include_untracked_arg():
+            prog = aa.drop_untracked(prog, profiles)
+        # Annotate each row with its roster profile for the modal's extra columns.
+        for u in prog['users']:
+            p = profiles.get(u['email'].lower(), {})
+            u['department'] = p.get('department', '')
+            u['location'] = p.get('location', '')
+            u['job_role'] = p.get('job_role', '')
+            u['tracked'] = bool(p.get('tracked'))
+            if p.get('name'):
+                u['name'] = p['name']
+        return jsonify(prog)
     except Exception:
         import traceback
         logger.error(f"Error in api_assignment_progress: {traceback.format_exc()}")
@@ -1643,6 +2017,7 @@ def api_fy_user(user_email):
     """A single user's assignment-by-assignment breakdown within an FY scope."""
     try:
         fy = request.args.get('fy', 'current')
+        quarter = aa.parse_quarter(request.args.get('quarter'))
         assignments = _load_assignments()
         index = aa.build_api_index(load_data())
         history_index = _history_index()
@@ -1653,6 +2028,8 @@ def api_fy_user(user_email):
         for a in assignments:
             p = aa.compute_assignment_progress(a, index, history_index)
             if resolved != 'all' and p['fy_start_year'] != resolved:
+                continue
+            if resolved != 'all' and quarter and p['quarter'] != quarter:
                 continue
             u = next((x for x in p['users'] if x['email'] == user_email), None)
             if not u:
