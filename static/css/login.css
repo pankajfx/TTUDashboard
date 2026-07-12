@@ -1,0 +1,69 @@
+/* ============================================================
+   Login page (templates/login.html).
+   Loaded AFTER modern.css so equal-specificity rules win — keep
+   the <link> order in the template intact.
+   Page-scoped on purpose: the bare body rule below centres the card
+   and would break every other page's layout if it were shared.
+   ============================================================ */
+
+body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem 1rem 56px 1rem;
+}
+
+.login-card {
+    background: rgba(255, 255, 255, .94);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, .5);
+    border-radius: 16px;
+    box-shadow: 0 16px 48px rgba(8, 60, 80, .35);
+    width: 100%;
+    max-width: 380px;
+    padding: 1.75rem 1.5rem;
+}
+
+.login-logo {
+    width: 60px;
+    height: 60px;
+    padding: 14px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #14b8a6 0%, #06b6d4 100%);
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1rem;
+    box-shadow: 0 6px 18px rgba(13, 148, 136, .45), inset 0 1px 0 rgba(255, 255, 255, .3);
+}
+.login-logo svg {
+    width: 100%;
+    height: 100%;
+}
+
+/* Footer note under the form: a hairline divider + a small lock icon,
+   set apart from the Sign In button so it reads as a reassurance line
+   rather than crowding the CTA. */
+.login-note {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(15, 118, 110, .12);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .35rem;
+    color: #64748b;
+    font-size: .72rem;
+    letter-spacing: .01em;
+}
+.login-note svg { width: 13px; height: 13px; flex-shrink: 0; opacity: .8; }
+
+.error-message {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+}
+
+.h40 { height: 40px; }

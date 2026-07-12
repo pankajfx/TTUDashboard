@@ -1,0 +1,310 @@
+/* ============================================================
+   Assignments & FY Analytics page (templates/assignments.html).
+   Loaded AFTER modern.css so equal-specificity rules win — keep
+   the <link> order in the template intact.
+   ============================================================ */
+
+/* KPI tiles: 1 / 2 / 3 / 6 per row (custom because the purged Tailwind
+   build lacks the responsive grid-cols utilities needed here).
+   Six across from 1024px, not 1280px: a media query measures the viewport
+   *without* the scrollbar, so a 1080p laptop at 150% scaling (1280 CSS px)
+   reported ~1265px, missed the old breakpoint by a hair and dropped the six
+   tiles onto two rows. Two rows are now reserved for genuinely small screens. */
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+    gap: .5rem;
+}
+@media (min-width: 420px)  { .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 640px)  { .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 1024px) { .kpi-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+
+/* Narrow enough that six tiles clear 1024px without the label running into
+   the icon chip. Deliberately not built from Tailwind padding/text utilities:
+   modern.css sizes those for roomier tiles and would have to be fought with
+   !important on every rule. */
+.kpi-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .4rem;
+    padding: .5rem .6rem;
+}
+.kpi-card .kpi-text  { min-width: 0; }
+.kpi-card .kpi-label {
+    font-size: .66rem;
+    font-weight: 500;
+    line-height: 1.25;
+    letter-spacing: .01em;
+    color: var(--text-2);
+}
+.kpi-card .kpi-value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1.15;
+    color: var(--text);
+    margin-top: .1rem;
+}
+/* The shared chip styling (gradient fill, shadow) still comes from modern.css
+   via .bg-*-100.rounded-full; only the size is tightened for these tiles. */
+#dashboard .kpi-card .kpi-chip { padding: .35rem !important; }
+#dashboard .kpi-card .kpi-chip svg { width: 15px !important; height: 15px !important; }
+@media (min-width: 1280px) {
+    .kpi-card { padding: .6rem .75rem; }
+    .kpi-card .kpi-label { font-size: .72rem; }
+    .kpi-card .kpi-value { font-size: 1.4rem; }
+}
+
+/* FY dropdown + "Get Latest Data" button: force identical height so the
+   pair reads as one control group. box-sizing:border-box means the
+   select's 1px border is absorbed into the 38px rather than adding to
+   it, so both boxes match exactly regardless of border. */
+.fy-select-control,
+.fy-refresh-btn {
+    height: 38px;
+    box-sizing: border-box;
+    line-height: 1;
+}
+
+/* ---- Period strip (quarters of the FY, or one card per FY) ---- */
+.period-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    margin-bottom: .75rem;
+}
+/* One row, always. The tiles share the width evenly and shrink together; on a
+   narrow screen the row scrolls sideways rather than wrapping, so the quarters
+   stay side-by-side and comparable at a glance.
+   The vertical padding is load-bearing: overflow-x:auto forces the vertical
+   axis to clip too, which sheared the top off a card as it lifted on hover.
+   The padding gives the lift (and its shadow) somewhere to go. */
+.period-cards {
+    display: flex;
+    gap: .4rem;
+    overflow-x: auto;
+    padding: 5px 2px 9px;
+    scrollbar-width: thin;
+}
+.period-card {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 108px;
+    text-align: left;
+    padding: .3rem .5rem .45rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: #fff;
+    cursor: pointer;
+    overflow: hidden;            /* clips the progress strip to the rounded corners */
+    transition: background .15s, border-color .15s, box-shadow .15s, transform .15s;
+}
+.period-card .p-top   { display: flex; align-items: baseline; gap: .25rem; }
+.period-card .p-label { font-size: .72rem; font-weight: 700; color: var(--text); line-height: 1.2; }
+.period-card .p-range { font-size: .58rem; color: var(--text-3); font-weight: 500; }
+.period-card .p-rate  { margin-left: auto; font-size: .95rem; font-weight: 700; line-height: 1.1; }
+.period-card .p-meta  {
+    display: block;
+    font-size: .58rem;
+    line-height: 1.3;
+    color: var(--text-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* The completion bar rides the card's bottom edge instead of taking a row of
+   its own — that stacked row is where most of the old height went. */
+.period-card .p-bar {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 3px;
+    background: #e5e7eb;
+}
+.period-card .p-bar > span { display: block; height: 100%; }
+
+/* Hover — an inverted ink tile, deliberately unlike both the resting and the
+   selected state, so "what am I about to click" is never in doubt. The rate
+   keeps its inline traffic-light colour: it reads well against the dark fill. */
+.period-card:hover {
+    background: linear-gradient(135deg, #1f2937 0%, #0f172a 100%);
+    border-color: #0f172a;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(15, 23, 42, .35);
+}
+.period-card:hover .p-label { color: #fff; }
+.period-card:hover .p-range { color: rgba(255, 255, 255, .6); }
+.period-card:hover .p-meta  { color: rgba(255, 255, 255, .8); }
+.period-card:hover .p-bar   { background: rgba(255, 255, 255, .2); }
+
+/* Selected — filled with the brand gradient. These rules come after :hover and
+   match at equal specificity, so the selection survives being hovered. The rate
+   is forced white (teal-on-teal would be unreadable), which leaves the bar to
+   carry the traffic-light cue on this one card. */
+.period-card.active {
+    background: var(--grad-accent);
+    border-color: var(--brand-dark);
+    box-shadow: 0 0 0 2px rgba(13, 148, 136, .3), var(--shadow);
+}
+.period-card.active .p-label,
+.period-card.active .p-rate  { color: #fff !important; }
+.period-card.active .p-range { color: rgba(255, 255, 255, .75); }
+.period-card.active .p-meta  { color: rgba(255, 255, 255, .9); }
+.period-card.active .p-bar   { background: rgba(255, 255, 255, .3); }
+.period-card.active .p-bar > span { background: #fff !important; }
+.period-card.active:hover {
+    background: var(--grad-accent-dark);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(8, 84, 92, .4);
+}
+.period-card.empty { opacity: .55; }
+
+/* ---- Roster filters (department / location / role) ---- */
+.filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .4rem;
+}
+.filter-field {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    font-size: .62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .02em;
+    color: var(--text-3);
+}
+.filter-field select {
+    font-size: .75rem;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--text);
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: .3rem .55rem;
+    max-width: 150px;
+    cursor: pointer;
+}
+.filter-field select:hover { border-color: var(--brand-2); }
+.filter-field select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 2px rgba(13, 148, 136, .15); }
+/* An active (non-"All") filter is tinted, so it is obvious at a glance why the
+   figures below are smaller than expected. */
+.filter-field select.on { border-color: var(--brand); background: #f0fdfa; color: var(--brand); }
+.filter-clear {
+    font-size: .7rem;
+    font-weight: 700;
+    color: var(--brand);
+    background: #f0fdfa;
+    border: 1px solid var(--brand);
+    border-radius: 999px;
+    padding: .3rem .6rem;
+    cursor: pointer;
+}
+.filter-clear:hover { background: #ccfbf1; }
+.filter-note {
+    font-size: .72rem;
+    color: var(--text-2);
+    margin-bottom: .5rem;
+}
+.filter-note b { color: var(--brand); }
+
+/* ---- Include-untracked switch ---- */
+.untracked-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    font-size: .78rem;
+    font-weight: 600;
+    color: var(--text-2);
+    cursor: pointer;
+    padding: .35rem .6rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: #fff;
+}
+.untracked-toggle:hover { border-color: var(--brand-2); }
+.untracked-toggle input { width: 15px; height: 15px; accent-color: var(--brand); cursor: pointer; }
+.untracked-count {
+    font-size: .68rem;
+    font-weight: 700;
+    color: var(--warn);
+    background: #fffbeb;
+    border-radius: 999px;
+    padding: .05rem .4rem;
+}
+.untracked-warning {
+    font-size: .75rem;
+    line-height: 1.45;
+    color: #92400e;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: var(--radius-sm);
+    padding: .5rem .7rem;
+    margin-bottom: .75rem;
+}
+
+/* ---- Dimension breakdown: chart beside table on wide screens ---- */
+.dim-layout { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+@media (min-width: 1024px) { .dim-layout { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); } }
+
+/* ---- Quick-scroll shortcuts ----
+   Parked in the gutter between the cards and the edge of the screen: 28px wide
+   at right:5px keeps them inside the 32px page padding at lg, so they float
+   over the background gradient rather than over content. Fixed, so they stay
+   put at every scroll position. */
+.scroll-nav {
+    position: fixed;
+    right: 2px;
+    z-index: 45;              /* over the sticky header (30) and footer (40), under modals (50) */
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, .55);
+    border-radius: 50%;
+    background: rgba(255, 255, 255, .18);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    color: #fff;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(8, 84, 92, .25);
+    transition: background .15s, color .15s, transform .15s, box-shadow .15s;
+}
+.scroll-nav:hover {
+    background: rgba(255, 255, 255, .9);
+    color: var(--brand-dark);
+    transform: scale(1.08);
+    box-shadow: 0 4px 14px rgba(8, 84, 92, .35);
+}
+.scroll-nav:active { transform: scale(.95); }
+.scroll-nav svg { width: 15px; height: 15px; }
+.scroll-nav-up   { bottom: 85px; }    /* below the sticky header */
+.scroll-nav-down { bottom: 52px; } /* above the fixed footer */
+
+/* The tooltip hangs to the left — there is no room to the right of the button. */
+.scroll-nav::after {
+    content: attr(data-tip);
+    position: absolute;
+    right: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%);
+    white-space: nowrap;
+    background: rgba(15, 23, 42, .92);
+    color: #fff;
+    font-size: .62rem;
+    font-weight: 600;
+    padding: .2rem .45rem;
+    border-radius: var(--radius-sm);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .15s;
+}
+.scroll-nav:hover::after,
+.scroll-nav:focus-visible::after { opacity: 1; }

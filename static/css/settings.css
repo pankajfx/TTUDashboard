@@ -1,0 +1,32 @@
+/* ============================================================
+   Settings page (templates/settings.html).
+   Loaded AFTER modern.css so equal-specificity rules win — keep
+   the <link> order in the template intact.
+   Page-scoped on purpose: the bare h1 / .tab-btn rules below would
+   bleed into the other pages if they were merged into modern.css.
+   ============================================================ */
+
+body.p-3 { padding: .75rem !important; }
+@media (min-width: 640px) { body.sm\:p-8 { padding: 1rem 1.25rem !important; } }
+
+.tab-btn { padding: .5rem .9rem; border-bottom: 3px solid transparent; }
+
+.user-item, .assignment-item { transition: background .15s ease; }
+.user-item:hover, .assignment-item:hover { background: #7ee8d5; transform: none; }
+
+/* Compact headings */
+h1 { font-size: 1.15rem !important; }
+@media (min-width: 640px) { h1 { font-size: 1.35rem !important; } }
+.card h2 { font-size: 1rem !important; }
+
+/* Mobile modal: slide up from bottom as a sheet */
+@media (max-width: 640px) {
+    .fixed.inset-0.flex.items-center { align-items: flex-end !important; }
+    .card.max-w-2xl, .card.max-w-6xl, .card.max-w-sm {
+        max-width: 100% !important;
+        width: 100% !important;
+        border-radius: 14px 14px 0 0 !important;
+        max-height: 92vh !important;
+    }
+    .text-2xl.font-bold { font-size: 1.1rem; }
+}
