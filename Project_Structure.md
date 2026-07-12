@@ -31,6 +31,7 @@ A Flask-based internal dashboard for tracking **Tata Tomorrow University (TTU)**
 **Core capabilities:**
 - Real-time KPI cards and interactive ECharts visualisations
 - Per-course and per-user drill-down modals
+- FY / quarter analytics, sliceable by **department, location and role** — one population narrows every figure on the page ([§7](#population-controls-top-of-the-page))
 - Admin panel: user registry management, course assignments with deadlines
 - Email notifications (assignment, reminder, removal) via Office 365 SMTP
 - Background auto-refresh cache that keeps data ≤ 5 minutes stale without blocking users
@@ -407,10 +408,23 @@ optional **profile** and a **tracked** flag:
 | **Profile** | Department / location / role (as supplied) | None — the API has no such fields |
 | **Analytics** | Always counted | Counted only while *Include untracked users* is ticked |
 | **Dimension bucket** | Their department / location / role, or `Unspecified` if the roster left the cell blank | The `Untracked` bucket |
+| **Roster filter bucket** | Their department / location / role, or **`NA`** if the roster left the cell blank | **`NA`** — same bucket |
+| **Table cells** (Users table, assignment drill-down modal) | Their department / location / role, or **`NA`** if the roster left the cell blank | **`NA`** on all three — there is no profile to read |
 
 The uploaded roster is the **authentic source of users**. Anyone the API reports who
 was never uploaded is classified untracked **automatically**, matched on email
 (case-insensitive). No manual step marks them.
+
+> **Two vocabularies, deliberately.** The *dimension breakdown* keeps `Unspecified` and
+> `Untracked` apart, because the difference is informative there ("we have them on the
+> roster but nobody filled in the cell" vs "we have never heard of them"). The *roster
+> filter dropdowns* collapse both into a single **`NA`** — from a "show me this
+> department" standpoint, both mean *nothing on record*, and offering two near-identical
+> empty options would be noise. One helper, `_profile_value()` in
+> `assignment_analytics.py` (reached via `profile_field()`), is the single definition of
+> "nothing on record" that the table cells, the assignment drill-down modal, the dropdown
+> option and the filter matcher all share — so a cell reading `NA` and a user landing in
+> the `NA` filter bucket can never disagree.
 
 ### API Sync (`sync_users_from_api`)
 
@@ -551,6 +565,30 @@ Users not found in API data are shown as `{ untouched: true, completion_status: 
 4. Send `send_deadline_reminder_email()` **only** to incomplete users (synchronous, not threaded)
 5. Returns counts: `reminders_sent`, `reminders_failed`, `already_completed`
 
+### Follow-up Assignment — the Re-assign button (`GET /api/settings/assignments/<id>/reassign-preview`)
+
+Every card in **Settings → Active Assignments** carries a fourth icon beside *Send Reminders*,
+*Edit* and *Delete*. It answers the question you ask the moment an assignment ends: *these
+people didn't finish — assign it to them again.*
+
+Clicking it jumps to the **Course Assignments** tab with the Create Assignment form **seeded**:
+the same course preselected, and preselected users = everyone from the original assignment who
+did **not** complete it. A banner says where the selection came from. The seed is only a seed —
+the course can be swapped, users added or removed, and the dates are chosen fresh. The
+assignment is then created through the ordinary `POST /api/settings/assignments`, so a follow-up
+is an ordinary assignment in every respect (its own validity window, deadline, baseline and
+notifications). **Nothing is created by the preview endpoint itself.**
+
+| Concern | Behaviour |
+|---------|-----------|
+| **When it unlocks (admin)** | Only once the assignment has **ended** — "who didn't finish" is not a question you can answer while it is still running. |
+| **When it unlocks (superadmin)** | **Always**, irrespective of the dates. Superadmins run the remediation cycles and must not be blocked by a window they set themselves. |
+| **What "ended" means** | Its **`effective_to`** when one was given (completions after it don't count anyway) — **otherwise the end of the `deadline` day**. `effective_to` is optional; the deadline never is (it defaults to 15 days), so every assignment has an end. An assignment due *today* is still running today. |
+| **Who is carried over** | Every status **other than `completed`**: in-progress, never-started, and **stale** users (whose only completion falls outside the window, so they must redo the course). Users who completed it are left out. |
+| **Where that comes from** | The same `compute_assignment_progress()` that produces the card's ✓/⟳/✗ counts and the details modal — so the carried-over set can never disagree with the numbers the admin is looking at. |
+| **Deleted users** | A carried-over user since removed from the registry is **skipped** (with a toast), not silently selected-but-invisible. |
+| **Where the rule lives** | **Server-side, once.** `GET /api/settings/assignments` returns a derived `expired` + `can_reassign` per record (computed per request against the caller's role, never stored); the UI only renders what the server decided, and the preview endpoint **403s** an admin whose assignment is still running. Disabling the button in the DOM is an affordance, not the guard. |
+
 ### Bulk Assignment Upload (`POST /api/settings/assignments/bulk-upload`)
 
 1. Parse Excel file (Column A = emails)
@@ -588,11 +626,13 @@ Powered by `assignment_analytics.build_summary()`. All figures measure progress 
 | One financial year | **Q1 Apr–Jun · Q2 Jul–Sep · Q3 Oct–Dec · Q4 Jan–Mar** + a *Full Year* card | `1`–`4` narrows every figure to that quarter |
 | All financial years | One card per FY | ignored |
 
-Each period card shows its completion %, assignment count and `done/enrolled`. Clicking a
-quarter narrows the whole page to it; clicking it again returns to the full year. The strip
-is rendered **outside** the dashboard container, so an empty quarter still leaves you
-something to click back out of. The *Full Year* card is computed from the period rows, not
-from the KPIs — the KPIs describe the *selected* quarter.
+Each period card shows its completion %, assignment count and `done/enrolled`. The cards sit
+in a **single row** (they share the width evenly and shrink together; a narrow screen scrolls
+the row sideways rather than wrapping, so the quarters stay side-by-side and comparable at a
+glance). Clicking a quarter narrows the whole page to it; clicking it again returns to the
+full year. The strip is rendered **outside** the dashboard container, so an empty quarter
+still leaves you something to click back out of. The *Full Year* card is computed from the
+period rows, not from the KPIs — the KPIs describe the *selected* quarter.
 
 **Dimension breakdown** — a tabbed card (**By Department / By Location / By Role**) with a
 stacked status bar chart and a sortable, CSV-exportable table. One enrollment (a user in an
@@ -602,15 +642,45 @@ assignment) contributes to one bucket in each dimension:
 - `Unspecified` — tracked, but the roster left that cell blank
 - `Untracked` — never uploaded at all (only present while untracked users are included)
 
-**Include-untracked switch** — a checkbox on the period strip (`?include_untracked=`).
-When off, every enrollment belonging to an untracked user is dropped **up front**, before
-any aggregation, so KPIs, charts, per-assignment rows, the tables and the dimension
-breakdown are all computed from the same population and cannot disagree. The drill-down
-modals inherit the same setting so a modal always matches the row that opened it.
+### Population controls (top of the page)
 
-> Before any roster is uploaded, **every** user is untracked — so unchecking the box zeroes
-> the page. The dashboard detects this (`tracked_users == 0`) and shows an explanatory
-> banner rather than a wall of zeros.
+Four controls sit together on the period strip, above the quarters, because they all answer
+the same question — *which users are we counting?* All four narrow the **whole page**.
+
+**Include-untracked switch** (`?include_untracked=`). When off, every enrollment belonging
+to an untracked user is dropped **up front**, before any aggregation.
+
+**Department / Location / Role dropdowns** (`?department=` `?location=` `?job_role=`).
+Each defaults to **All**. A selection narrows the population to the users matching **every**
+named dimension (they AND together), applied at exactly the same point and by exactly the
+same mechanism as the untracked switch — so the KPIs, all three charts, the dimension
+breakdown and all three tabbed tables are computed from one population and **cannot
+disagree**. An active dropdown is tinted, a one-line note explains why the figures shrank,
+and a *Clear filters* button appears.
+
+| Concern | Behaviour |
+|---------|-----------|
+| **Where the options come from** | The **roster** — whatever *Add user* and the bulk upload have put there — not from whichever users happen to fall in the current FY scope. The lists therefore stay put as you move between years and quarters instead of shifting under you. |
+| **`NA` option** | Offered only when somebody actually being counted has nothing on record: an untracked user (no profile at all), or a tracked user whose roster cell was left blank. |
+| **Empty assignments** | An assignment nobody in the filtered population is enrolled in is **dropped**, not listed as a `0 enrolled` row — otherwise *Total Assignments* would answer a question nobody asked. |
+| **Self-healing selection** | A selection whose option no longer exists is **silently dropped** rather than honoured. (Pick `NA`, then untick *Include untracked users*, and `NA` may cease to exist — without this the page would filter down to nothing the user could not then undo.) The server echoes back the selection it *actually applied* in `filters`, and the dropdowns mirror that rather than tracking it independently. |
+| **Untrusted input** | A value that is not among the server-built options is ignored, so a hand-crafted query string cannot inject a filter. |
+
+> **Before any roster is uploaded, every user is untracked.** Two consequences, both
+> expected rather than bugs:
+> - Unticking *Include untracked users* zeroes the page. The dashboard detects this
+>   (`tracked_users == 0`) and shows an explanatory banner rather than a wall of zeros.
+> - Every dropdown degenerates to **All + NA** only, and every row in the Users table reads
+>   `NA` — there are simply no departments, locations or roles on record yet. The lists
+>   populate themselves as soon as a roster is uploaded; no code change is needed.
+
+**Engine internals** (`assignment_analytics.py`): `filter_options()` builds the dropdown
+lists, `normalize_filters()` validates a request against them (this is what makes a stale
+selection self-heal), `matches_filters()` decides one user, and `apply_filters()` rebuilds an
+assignment's counts from the surviving enrollees via the same `_recount()` that
+`drop_untracked()` uses. The `NA` bucket travels on the wire as the sentinel
+`__na__` (`NA_FILTER_VALUE`), **not** the literal string `NA`, so a department genuinely
+*named* "NA" can never collide with the empty bucket.
 
 ---
 
@@ -713,6 +783,7 @@ Email failures never block assignment creation/update — they are logged and co
 | GET | `/login` | Login page |
 | POST | `/login` | Authenticate, set session |
 | GET | `/logout` | Clear session, redirect to login |
+| GET | `/favicon.ico` | Returns **204 No Content**. The app ships no icon; this exists only so the browser's automatic request stops 404-ing in the log |
 
 ### Authenticated (any logged-in user)
 
@@ -739,11 +810,12 @@ Email failures never block assignment creation/update — they are logged and co
 | DELETE 🔒 | `/api/settings/users/<email>` | Delete user |
 | POST 🔒 | `/api/settings/users/bulk-upload` | Bulk user import from Excel |
 | GET | `/api/settings/courses` | Available courses from API data |
-| GET | `/api/settings/assignments` | All assignments |
+| GET | `/api/settings/assignments` | All assignments — each with a derived `expired` + `can_reassign` ([§7](#follow-up-assignment--the-re-assign-button-get-apisettingsassignmentsidreassign-preview)) |
 | POST 🔒 | `/api/settings/assignments` | Create assignment |
 | GET | `/api/settings/assignments/<id>` | Assignment detail + progress |
 | PUT 🔒 | `/api/settings/assignments/<id>` | Update assignment user list |
 | DELETE 🔒 | `/api/settings/assignments/<id>` | Delete assignment |
+| GET | `/api/settings/assignments/<id>/reassign-preview` | Course + the users who did **not** complete it — seeds a follow-up assignment. **403** for an admin whose assignment is still running; a superadmin is never blocked. Creates nothing |
 | POST 🔒 | `/api/settings/assignments/<id>/remind` | Send deadline reminders |
 | POST 🔒 | `/api/settings/assignments/bulk-upload` | Bulk assignment from Excel |
 | GET | `/api/email-job/<job_id>` | Poll background email job progress |
@@ -754,7 +826,7 @@ Email failures never block assignment creation/update — they are logged and co
 |--------|-------|-------------|
 | GET | `/assignments-dashboard` | FY / quarter / dimension analytics page |
 | GET | `/api/assignments-summary` | Full dashboard payload — see params below |
-| GET | `/api/assignment-progress/<id>` | Per-user progress for one assignment (drill-down) |
+| GET | `/api/assignment-progress/<id>` | Per-user progress for one assignment (drill-down). Each row carries its roster `department`, `location`, `job_role` and `tracked` flag — empty means nothing on record, which the modal renders as **NA** |
 | GET | `/api/fy-user/<email>` | One user's assignment-by-assignment breakdown |
 
 **Query parameters:**
@@ -764,6 +836,22 @@ Email failures never block assignment creation/update — they are logged and co
 | `fy` | `current` \| `all` \| `<start_year>` | summary, fy-user | Financial-year scope |
 | `quarter` | `1`–`4` \| `all` | summary, fy-user | Narrow an FY scope to one quarter (ignored when `fy=all`) |
 | `include_untracked` | `true` (default) \| `false` | summary, assignment-progress | Count users who are in the API but not on the uploaded roster |
+| `department` | `all` (default) \| `<value>` \| `__na__` | summary | Narrow to one roster department; `__na__` = nothing on record ([§7](#population-controls-top-of-the-page)) |
+| `location` | `all` (default) \| `<value>` \| `__na__` | summary | Narrow to one roster location |
+| `job_role` | `all` (default) \| `<value>` \| `__na__` | summary | Narrow to one roster role |
+
+An unrecognised value for the three roster filters is **ignored, not honoured** — the server
+validates each against the options it just built. `/api/assignments-summary` echoes back what
+it actually applied:
+
+```json
+{
+  "filters":         { "department": "Safety", "location": "all", "job_role": "all" },
+  "filter_options":  { "department": [ { "value": "Safety", "label": "Safety" },
+                                       { "value": "__na__", "label": "NA" } ], ... },
+  "filters_active":  true
+}
+```
 
 > `POST /api/refresh-cache` (authenticated, [§9](#authenticated-any-logged-in-user)) is also CSRF-protected.
 
@@ -1027,9 +1115,34 @@ All authentication events are logged to **both the console and a persistent file
 | Login fails | Wrong password in `.env` | Fix `ADMIN_PASSWORD` / `USER_PASSWORD`, restart |
 | App won't start (`KeyError`) | Missing required env var | Ensure `.env` exists with all required keys ([§12](#12-configuration-reference)) |
 | `403 CSRF validation failed` on actions | Stale page / missing token | Hard-refresh the page so a fresh `csrf_token` loads |
-| UI unstyled / "totally disturbed" | Stale or broken `tailwind.min.css` | Hard-refresh (Ctrl+F5); if persists run `npm run build:css` |
+| `Refused to execute script … MIME type ('text/plain') is not executable` + `echarts is not defined` | **Windows registry has `HKCR\.js` set to `text/plain`** — see below | Already fixed in code; if it recurs, confirm the `mimetypes.add_type(...)` block still runs at import in `app.py` |
+| UI unstyled / charts missing | Same MIME-type cause as above (CSS is refused under `style-src 'self'`), **or** a stale cached copy | Hard-refresh (Ctrl+F5). *Not* a Tailwind build problem — there is no CSS build step ([§11](#styling-no-build-step)) |
 | Port already in use | Another process on 5000 | Use `netstat -ano \| findstr :5000` to identify |
 | Permission error on data/ | Missing write permission | Run as Administrator or fix folder ACL |
+
+### Static-file MIME types on Windows (why `echarts.min.js` refused to load)
+
+Flask sets a static file's `Content-Type` from Python's `mimetypes.guess_type()`, and on
+Windows that module **seeds itself from the registry** (`HKCR\.js` → *Content Type*). Various
+installers (Visual Studio, older Java/Adobe packages) clobber that key to `text/plain`. The
+file then serves at HTTP 200 with the wrong type, Chrome's strict MIME checking refuses to
+execute it, and the page dies with `echarts is not defined` — even though nothing is actually
+missing.
+
+`app.py` therefore **pins the types explicitly at import time**, before Flask can build any
+response, so the host machine's registry never gets a vote:
+
+```python
+mimetypes.add_type('text/javascript', '.js')
+mimetypes.add_type('text/css',        '.css')
+mimetypes.add_type('image/svg+xml',   '.svg')
+mimetypes.add_type('application/json', '.json')
+```
+
+`.css` matters as much as `.js`: the CSP is strict (`style-src 'self'`), so a mis-typed
+stylesheet is refused exactly the same way and the UI renders unstyled. This travels with the
+app rather than patching one machine's registry, so **every** Windows box it deploys to is
+covered.
 
 ---
 

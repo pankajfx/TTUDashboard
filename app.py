@@ -330,6 +330,36 @@ def _default_deadline(created_dt=None):
     return (base + timedelta(days=DEFAULT_DEADLINE_DAYS)).strftime('%Y-%m-%d')
 
 
+def _assignment_end(assignment):
+    """The moment an assignment stops running.
+
+    That is its `effective_to` when one was given (completions after it do not count
+    anyway), and otherwise the *end* of its deadline day — an assignment due today is
+    still running today. `effective_to` is optional, `deadline` never is (it defaults
+    to 15 days), so this returns None only for a record with neither parseable."""
+    end = aa.parse_created(assignment.get('effective_to') or '')
+    if end:
+        return end
+    due = aa.parse_created(assignment.get('deadline') or '')
+    return due.replace(hour=23, minute=59, second=59) if due else None
+
+
+def _assignment_expired(assignment, now=None) -> bool:
+    """Has this assignment's end date been surpassed? (See _assignment_end.)"""
+    end = _assignment_end(assignment)
+    return bool(end and (now or datetime.now()) > end)
+
+
+def _can_reassign(assignment, now=None) -> bool:
+    """May the current user spin a follow-up assignment off this one?
+
+    An **admin** may only once the assignment has actually finished — a follow-up
+    means "these people did not complete it in time", which is not a question you can
+    answer while it is still running. A **superadmin** may always: they run the
+    remediation cycles and must not be blocked by a window they themselves set."""
+    return session.get('role') == 'superadmin' or _assignment_expired(assignment, now)
+
+
 def _user_profiles():
     """email(lowercased) -> {name, department, location, job_role, tracked} for the
     analytics engine. The uploaded roster is the authentic user list; anyone the API
@@ -781,9 +811,20 @@ def get_email_job_status(job_id):
 @app.route('/api/settings/assignments', methods=['GET'])
 @admin_required
 def get_assignments():
-    """Get all course assignments"""
+    """Get all course assignments.
+
+    Each record carries two *derived* flags (computed per request against the caller's
+    role — never stored): `expired` (its end date has passed) and `can_reassign` (the
+    Re-assign action is unlocked for this caller). The UI only renders what the server
+    decided here, so the enable/disable rule lives in exactly one place."""
     assignments = load_json_file(ASSIGNMENTS_FILE, {'assignments': []})
-    return jsonify(assignments.get('assignments', []))
+    now = datetime.now()
+    return jsonify([
+        {**a,
+         'expired': _assignment_expired(a, now),
+         'can_reassign': _can_reassign(a, now)}
+        for a in assignments.get('assignments', [])
+    ])
 
 @app.route('/api/settings/assignments', methods=['POST'])
 @admin_required
@@ -857,6 +898,13 @@ def create_assignment():
         'email_total': len(user_emails) if notify_email else 0
     }), 201
 
+# How compute_assignment_progress()'s status buckets are labelled for the UI. One
+# definition, shared by the details modal and the re-assignment preview, so the two
+# can never label the same user differently. (A stale completion lands in
+# 'not_started' — the user has to redo the course — and is flagged by `stale`.)
+_STATUS_DISPLAY = {'completed': 'Completed', 'in_progress': 'Current', 'not_started': 'Not Started'}
+
+
 @app.route('/api/settings/assignments/<int:assignment_id>', methods=['GET'])
 @admin_required
 def get_assignment_details(assignment_id):
@@ -896,8 +944,6 @@ def get_assignment_details(assignment_id):
         # Uses the same engine as the FY dashboard so both views agree.
         api_index = aa.build_api_index(api_data)
         prog = aa.compute_assignment_progress(assignment, api_index)
-        status_display = {'completed': 'Completed', 'in_progress': 'Current',
-                          'stale': 'Stale', 'not_started': 'Not Started'}
         assignment_users = []
         for u in prog['users']:
             assignment_users.append({
@@ -905,7 +951,7 @@ def get_assignment_details(assignment_id):
                 'name': u['name'],
                 # a stale completion contributes 0% toward this assignment
                 'completion_percentage': '0' if u['stale'] else str(u['percentage']),
-                'completion_status': status_display[u['status']],
+                'completion_status': _STATUS_DISPLAY[u['status']],
                 'activity_status': '',
                 'completion_date': u['completion_date'],
                 'untouched': u['untouched'],
@@ -942,6 +988,59 @@ def get_assignment_details(assignment_id):
     except Exception as e:
         logger.error(f"Error getting assignment details: {e}")
         return jsonify({'error': 'Failed to load assignment details'}), 500
+
+@app.route('/api/settings/assignments/<int:assignment_id>/reassign-preview', methods=['GET'])
+@admin_required
+def reassign_preview(assignment_id):
+    """The carry-over payload for a follow-up assignment: the same course, plus the
+    users who did NOT complete this one inside its validity window.
+
+    This only *seeds* the Create Assignment form — the admin can still change the
+    course and add or remove users before submitting, and the assignment itself is
+    then created through the ordinary POST endpoint. Nothing is created here.
+
+    Pending = every status other than 'completed', so it includes in-progress users,
+    users who never started, and users whose only completion is stale (dated outside
+    the window — they have to redo the course). It comes from the same
+    compute_assignment_progress() that the card's ✓/⟳/✗ counts and the details modal
+    use, so the carried-over set can never disagree with what the admin is looking at."""
+    try:
+        assignment = next((a for a in _load_assignments() if a.get('id') == assignment_id), None)
+        if not assignment:
+            return jsonify({'error': 'Assignment not found'}), 404
+
+        if not _can_reassign(assignment):
+            return jsonify({'error': 'This assignment is still running. Re-assignment '
+                                     'unlocks once its end date (Effective To, or the '
+                                     'deadline) has passed.'}), 403
+
+        prog = aa.compute_assignment_progress(assignment, aa.build_api_index(load_data()))
+        pending = [
+            {
+                'email': u['email'],
+                'name': u['name'],
+                'status': _STATUS_DISPLAY[u['status']],
+                'stale': u['stale'],
+                'untouched': u['untouched'],
+            }
+            for u in prog['users'] if u['status'] != 'completed'
+        ]
+
+        return jsonify({
+            'assignment_id': assignment_id,
+            'title': aa.assignment_title(assignment),
+            'course_name': assignment.get('course_name', ''),
+            'deadline': assignment.get('deadline', ''),
+            'effective_to': assignment.get('effective_to', ''),
+            'total_users': prog['total'],
+            'completed_count': prog['completed'],
+            'pending_count': len(pending),
+            'pending_users': pending,
+        })
+    except Exception as e:
+        logger.error(f"Error building re-assignment preview for {assignment_id}: {e}")
+        return jsonify({'error': 'Failed to load re-assignment details'}), 500
+
 
 @app.route('/api/settings/assignments/<int:assignment_id>/remind', methods=['POST'])
 @admin_required
@@ -2021,11 +2120,14 @@ def api_assignment_progress(assignment_id):
         if not _include_untracked_arg():
             prog = aa.drop_untracked(prog, profiles)
         # Annotate each row with its roster profile for the modal's extra columns.
+        # profile_field() is the single definition of "nothing on record" (it returns ""
+        # for a blank roster field AND for an untracked user, who has no roster row at
+        # all), so a cell the modal renders as NA is NA by the same rule the dimension
+        # filters and the Users table use.
         for u in prog['users']:
             p = profiles.get(u['email'].lower(), {})
-            u['department'] = p.get('department', '')
-            u['location'] = p.get('location', '')
-            u['job_role'] = p.get('job_role', '')
+            for field in ('department', 'location', 'job_role'):
+                u[field] = aa.profile_field(u['email'], profiles, field)
             u['tracked'] = bool(p.get('tracked'))
             if p.get('name'):
                 u['name'] = p['name']

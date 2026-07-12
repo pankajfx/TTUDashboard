@@ -53,13 +53,13 @@
             </div>
             <!-- Tabs -->
             <div class="flex border-gray-200">
-                <button class="tab-btn active text-sm sm:text-base" onclick="switchTab('users')">
+                <button class="tab-btn active text-sm sm:text-base" data-tab="users" onclick="switchTab('users', this)">
                     User Management
                 </button>
-                <button class="tab-btn text-sm sm:text-base" onclick="switchTab('assignments')">
+                <button class="tab-btn text-sm sm:text-base" data-tab="assignments" onclick="switchTab('assignments', this)">
                     Course Assignments
                 </button>
-                <button class="tab-btn text-sm sm:text-base" onclick="switchTab('active-assignments')">
+                <button class="tab-btn text-sm sm:text-base" data-tab="active-assignments" onclick="switchTab('active-assignments', this)">
                     Active Assignments
                 </button>
             </div>
@@ -189,7 +189,24 @@
                 <!-- Create Assignment Form -->
                 <div class="card p-6" style="overflow: hidden;">
                     <h2 class="text-xl font-bold text-gray-900 mb-4">Create Course Assignment</h2>
-                    
+
+                    <!-- Follow-up context: shown only when the form was seeded from an
+                         expired assignment via the Re-assign button. Everything below is
+                         still fully editable — this only says where the defaults came from. -->
+                    <div id="followUpBanner" class="hidden mb-4 p-3 rounded-lg border border-indigo-200 bg-indigo-50">
+                        <div class="flex justify-between items-start gap-3">
+                            <div class="min-w-0">
+                                <p class="text-sm font-semibold text-indigo-900">Follow-up assignment</p>
+                                <p id="followUpBannerText" class="text-xs text-indigo-800 mt-0.5"></p>
+                                <p class="text-xs text-indigo-600 mt-1">Change the course, or add and remove users, before creating.</p>
+                            </div>
+                            <button type="button" onclick="clearFollowUp()"
+                                class="flex-shrink-0 text-xs font-semibold text-indigo-700 hover:text-indigo-900 underline">
+                                Clear selection
+                            </button>
+                        </div>
+                    </div>
+
                     <!-- Manual Selection -->
                     <form id="createAssignmentForm" class="space-y-4 mb-6" style="overflow:hidden;">
                         <div>
@@ -831,17 +848,24 @@
         let courses = [];
         let assignments = [];
 
-        // Tab switching
-        function switchTab(tabName) {
-            document.querySelectorAll('.tab-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            event.target.classList.add('active');
+        // Tab switching. showTab() only moves the UI; switchTab() also kicks off that
+        // tab's data load. The follow-up flow needs to show the tab and then load its
+        // data itself (awaiting it, so it can seed the form once the selects exist) —
+        // hence the split, which also keeps a second, racing load from clobbering the
+        // seeded course selection.
+        function showTab(tabName, btn) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            const tabBtn = btn || document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+            if (tabBtn) tabBtn.classList.add('active');
 
             document.querySelectorAll('.tab-content').forEach(content => {
                 content.classList.add('hidden');
             });
             document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+        }
+
+        function switchTab(tabName, btn) {
+            showTab(tabName, btn);
 
             if (tabName === 'assignments') {
                 loadCourses();
@@ -1414,6 +1438,7 @@
                     document.querySelectorAll('.user-checkbox').forEach(cb => cb.checked = false);
                     selectedAssignmentEmails.clear();
                     updateSelectionCounter();
+                    hideFollowUpBanner();   // the seed has been consumed
 
                     hideAssignmentLoader();
 
@@ -1684,6 +1709,20 @@
                 const completionColor = completionRate >= 75 ? 'text-green-600' : completionRate >= 50 ? 'text-yellow-600' : 'text-red-600';
 
                 const aid = parseInt(assignment.id, 10);
+
+                // Re-assign: create a follow-up assignment for whoever did not finish this
+                // one. The server decides whether it is unlocked (can_reassign) — an admin
+                // gets it only once the assignment's end date has passed, a superadmin
+                // always. Never gate on the role here; that would be a second, drifting
+                // copy of the rule.
+                const canReassign = !!assignment.can_reassign;
+                const reassignTitle = canReassign
+                    ? 'Re-assign — new assignment for the users who did not complete this one'
+                    : 'Unlocks once this assignment ends (Effective To, or the deadline)';
+                const reassignClass = canReassign
+                    ? 'text-indigo-600 hover:text-indigo-800'
+                    : 'text-gray-300 cursor-not-allowed';
+
                 return `
                 <div class="assignment-item p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition"
                      data-aid="${aid}">
@@ -1693,6 +1732,12 @@
                             <p class="text-xs ${completionColor} font-medium mt-0.5">Completion: ${completionRate.toFixed(1)}%</p>
                         </div>
                         <div class="flex gap-1.5 flex-shrink-0">
+                            <button class="reassign-btn ${reassignClass} p-1" data-aid="${aid}"
+                                ${canReassign ? '' : 'disabled'} title="${h(reassignTitle)}">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                </svg>
+                            </button>
                             <button class="remind-btn text-yellow-600 hover:text-yellow-800 p-1" data-aid="${aid}" title="Send Reminders">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
@@ -1734,6 +1779,9 @@
             assignmentsList.querySelectorAll('.assignment-item[data-aid]').forEach(card => {
                 card.addEventListener('click', () => viewAssignmentDetails(parseInt(card.dataset.aid, 10)));
             });
+            assignmentsList.querySelectorAll('.reassign-btn:not([disabled])').forEach(btn => {
+                btn.addEventListener('click', (e) => { e.stopPropagation(); startFollowUpAssignment(parseInt(btn.dataset.aid, 10)); });
+            });
             assignmentsList.querySelectorAll('.remind-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => { e.stopPropagation(); sendReminders(parseInt(btn.dataset.aid, 10)); });
             });
@@ -1765,6 +1813,107 @@
             } catch (error) {
                 showNotification('Error', 'Error deleting assignment: ' + error.message, 'error');
             }
+        }
+
+        // ── Follow-up assignment (the Re-assign button) ──────────────────────
+        // Seeds the Create Assignment form from an assignment that has ended: the same
+        // course, and the users who did NOT complete it. It is only a seed — the course
+        // can be swapped, users added or removed, and the assignment is then created
+        // through the ordinary Create Assignment path, so a follow-up is an ordinary
+        // assignment in every respect (its own window, deadline and notifications).
+        async function startFollowUpAssignment(assignmentId) {
+            showAssignmentLoader('Finding users who have not completed...');
+            try {
+                const res = await fetch(`/api/settings/assignments/${assignmentId}/reassign-preview`);
+                const data = await res.json();
+
+                if (!res.ok) {
+                    hideAssignmentLoader();
+                    showNotification('Cannot Re-assign', data.error || 'Failed to load re-assignment details', 'error');
+                    return;
+                }
+
+                if (data.pending_count === 0) {
+                    hideAssignmentLoader();
+                    showNotification('Nothing to Re-assign',
+                        `All ${data.total_users} user(s) completed "${data.course_name}" — there is nobody to follow up with.`,
+                        'info');
+                    return;
+                }
+
+                // Show the tab, then load its data here rather than letting switchTab()
+                // fire it: the seeding below must happen after the course <select> and the
+                // user checkboxes exist, and a second racing load would rebuild the select
+                // and wipe the course we are about to preselect.
+                showTab('assignments');
+                await Promise.all([loadCourses(), loadUsersForAssignment()]);
+
+                // Preselect the course. It normally comes straight from the API course
+                // list; if the API no longer reports it, keep it selectable instead of
+                // silently falling back to "Select a course...".
+                const courseSelect = document.getElementById('courseSelect');
+                if (!Array.from(courseSelect.options).some(o => o.value === data.course_name)) {
+                    courseSelect.insertAdjacentHTML('beforeend',
+                        `<option value="${h(data.course_name)}">${h(data.course_name)} (not in current API data)</option>`);
+                }
+                courseSelect.value = data.course_name;
+
+                // Preselect the pending users. Match the registry case-insensitively but
+                // keep the registry's spelling, so the Set and the checkbox values agree —
+                // the Set is what gets submitted, the checkboxes are what is rendered.
+                const registryEmails = new Map(assignmentUsers.map(u => [u.email.toLowerCase(), u.email]));
+                const skipped = [];
+                selectedAssignmentEmails = new Set();
+                data.pending_users.forEach(u => {
+                    const known = registryEmails.get((u.email || '').toLowerCase());
+                    if (known) selectedAssignmentEmails.add(known);
+                    else skipped.push(u.email);   // deleted from the registry since
+                });
+
+                document.getElementById('assignmentUserSearchInput').value = '';
+                filterAssignmentUsers('');
+                updateSelectionCounter();
+
+                // Say where the defaults came from, so a seeded form is never mistaken
+                // for a hand-built one.
+                const notes = [
+                    `Carried over ${selectedAssignmentEmails.size} user(s) who have not completed ` +
+                    `“${data.course_name}” from ${data.title}.`
+                ];
+                if (data.completed_count > 0) {
+                    notes.push(`${data.completed_count} of ${data.total_users} already completed it and were left out.`);
+                }
+                if (skipped.length > 0) {
+                    notes.push(`${skipped.length} user(s) are no longer in the registry and were skipped.`);
+                }
+                document.getElementById('followUpBannerText').textContent = notes.join(' ');
+                document.getElementById('followUpBanner').classList.remove('hidden');
+
+                hideAssignmentLoader();
+                document.getElementById('followUpBanner').scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+                if (skipped.length > 0) {
+                    showNotification('Some Users Skipped',
+                        `${skipped.length} user(s) from the previous assignment are no longer in the registry.`, 'warning');
+                }
+            } catch (error) {
+                hideAssignmentLoader();
+                showNotification('Error', 'Error preparing re-assignment: ' + error.message, 'error');
+            }
+        }
+
+        // Abandon a seeded follow-up: drop the carried-over course and users, leaving an
+        // empty Create Assignment form.
+        function clearFollowUp() {
+            hideFollowUpBanner();
+            document.getElementById('courseSelect').value = '';
+            document.querySelectorAll('.user-checkbox').forEach(cb => cb.checked = false);
+            selectedAssignmentEmails.clear();
+            updateSelectionCounter();
+        }
+
+        function hideFollowUpBanner() {
+            document.getElementById('followUpBanner').classList.add('hidden');
         }
 
         // Assignment details modal

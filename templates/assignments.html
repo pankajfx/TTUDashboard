@@ -430,6 +430,9 @@
                         <tr>
                             <th class="px-3 py-2 text-left text-xs font-medium text-white uppercase">User</th>
                             <th class="px-3 py-2 text-left text-xs font-medium text-white uppercase">Email</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-white uppercase">Department</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-white uppercase">Location</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-white uppercase">Role</th>
                             <th class="px-3 py-2 text-left text-xs font-medium text-white uppercase">Status</th>
                             <th class="px-3 py-2 text-left text-xs font-medium text-white uppercase">%</th>
                             <th class="px-3 py-2 text-left text-xs font-medium text-white uppercase">Completed On</th>
@@ -522,6 +525,14 @@
         function pct(v){ return (v===null||v===undefined?0:v) + '%'; }
         function shortDate(s){ return s ? String(s).slice(0,10) : '—'; }
 
+        // “NA” = nothing on record for a roster field. Two ways to get there, and they
+        // read the same to the viewer: the user is tracked but the roster left the field
+        // blank, or the user is untracked and so has no roster row at all (the API does
+        // not carry department / location / role). The server decides which fields are
+        // empty — see profile_field() — this only labels them.
+        const NA_LABEL = 'NA';
+        function naCell(v){ return v ? h(v) : '<span class="text-gray-400">'+NA_LABEL+'</span>'; }
+
         // ── Column definitions (drive render + sort + export) ────────────────
         const COLS = {
             assignments: [
@@ -547,12 +558,9 @@
             users: [
                 {key:'name', label:'User', type:'str', fmt:(v,row)=> v || row.email.split('@')[0]},
                 {key:'email', label:'Email', type:'str'},
-                // NA covers both kinds of "nothing on record": a roster field left blank,
-                // and an untracked user, who has no profile at all because the API does
-                // not carry department / location / role.
-                {key:'department', label:'Department', type:'str', fmt:(v)=> v || 'NA'},
-                {key:'location', label:'Location', type:'str', fmt:(v)=> v || 'NA'},
-                {key:'job_role', label:'Role', type:'str', fmt:(v)=> v || 'NA'},
+                {key:'department', label:'Department', type:'str', fmt:(v)=> v || NA_LABEL},
+                {key:'location', label:'Location', type:'str', fmt:(v)=> v || NA_LABEL},
+                {key:'job_role', label:'Role', type:'str', fmt:(v)=> v || NA_LABEL},
                 {key:'assignments_count', label:'# Assignments', type:'num'},
                 {key:'courses_count', label:'# Courses', type:'num'},
                 {key:'completed', label:'Done', type:'num'},
@@ -1131,6 +1139,9 @@
                     html += '<tr>'+
                         '<td class="px-3 py-2 text-sm font-medium text-gray-900">'+h(u.name||u.email.split('@')[0])+ (u.untouched?' <span class="text-[10px] text-gray-400">(never opened)</span>':'') +'</td>'+
                         '<td class="px-3 py-2 text-sm text-gray-600">'+h(u.email)+'</td>'+
+                        '<td class="px-3 py-2 text-sm text-gray-600">'+naCell(u.department)+'</td>'+
+                        '<td class="px-3 py-2 text-sm text-gray-600">'+naCell(u.location)+'</td>'+
+                        '<td class="px-3 py-2 text-sm text-gray-600">'+naCell(u.job_role)+'</td>'+
                         '<td class="px-3 py-2">'+statusBadge(u.status)+'</td>'+
                         '<td class="px-3 py-2 text-sm text-gray-600">'+u.percentage+'%</td>'+
                         '<td class="px-3 py-2 text-sm text-gray-500">'+(u.stale?('<span class="text-gray-400">— (done '+shortDate(u.completion_date)+', outside valid window)</span>'):(u.completion_date?shortDate(u.completion_date):'—'))+'</td>'+
@@ -1138,7 +1149,7 @@
                 });
                 document.getElementById('assignmentModalBody').innerHTML = html;
             }catch(err){
-                document.getElementById('assignmentModalBody').innerHTML = '<tr><td colspan="5" class="px-3 py-4 text-red-600">Failed to load: '+h(err.message)+'</td></tr>';
+                document.getElementById('assignmentModalBody').innerHTML = '<tr><td colspan="8" class="px-3 py-4 text-red-600">Failed to load: '+h(err.message)+'</td></tr>';
             }
         }
 
