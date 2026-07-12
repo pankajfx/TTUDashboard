@@ -70,13 +70,41 @@ app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5 MB upload limit
 API_URL = os.environ['TCS_ION_API_URL']
 USE_LOCAL_DATA = os.environ.get('USE_LOCAL_DATA', 'false').lower() == 'true'
 
+def _env_number(name, default, minimum, cast=int):
+    """Read a tuning knob from the environment.
+
+    Falls back to the default when the variable is absent or unparseable, and clamps
+    to `minimum` so a typo in .env can never turn a poller into a busy loop.
+    """
+    raw = os.environ.get(name, '').strip()
+    if not raw:
+        return default
+    try:
+        value = cast(raw)
+    except ValueError:
+        logger.warning(f"{name}={raw!r} is not a number - falling back to {default}")
+        return default
+    if value < minimum:
+        logger.warning(f"{name}={value} is below the safe minimum - clamping to {minimum}")
+        return minimum
+    return value
+
+
 # API timeout configuration (in seconds)
-# The API typically takes 3+ minutes to respond, so set timeout accordingly
-API_TIMEOUT = 360  # 360 seconds = 6 minutes (API can take 3-5 min; give headroom)
+# The API typically takes 3+ minutes to respond, so set timeout accordingly.
+API_TIMEOUT = _env_number('API_TIMEOUT_SECONDS', 360, 30)
 
 # Cache configuration
-AUTO_REFRESH_INTERVAL_MINUTES = 30  # Auto-refresh cache every 5 minutes
+# How often the server re-pulls the TCS iON API in the background. This is the interval
+# that actually keeps the dashboards and course-completion tracking current — every other
+# interval below is just how quickly the browser notices what the server already has.
+AUTO_REFRESH_INTERVAL_MINUTES = _env_number('AUTO_REFRESH_INTERVAL_MINUTES', 30, 1)
 CACHE_FILE = 'data/api_cache.json'  # Persistent cache file
+
+# Browser-side polling, in seconds. Handed to the templates by inject_poll_config().
+CACHE_STATUS_POLL_SECONDS = _env_number('CACHE_STATUS_POLL_SECONDS', 30, 5)
+REFRESH_PROGRESS_POLL_SECONDS = _env_number('REFRESH_PROGRESS_POLL_SECONDS', 3, 1)
+EMAIL_JOB_POLL_SECONDS = _env_number('EMAIL_JOB_POLL_SECONDS', 1.5, 0.5, float)
 _data_cache = None
 _cache_timestamp = None
 _cache_lock = threading.Lock()
@@ -170,6 +198,17 @@ def _get_csrf_token() -> str:
 @app.context_processor
 def inject_csrf_token():
     return {'csrf_token': _get_csrf_token()}
+
+
+@app.context_processor
+def inject_poll_config():
+    """Polling intervals for the templates, in milliseconds, so every interval in the
+    app is configured in one place (.env) rather than hardcoded per page."""
+    return {
+        'cache_status_poll_ms': int(CACHE_STATUS_POLL_SECONDS * 1000),
+        'refresh_progress_poll_ms': int(REFRESH_PROGRESS_POLL_SECONDS * 1000),
+        'email_job_poll_ms': int(EMAIL_JOB_POLL_SECONDS * 1000),
+    }
 
 
 def csrf_required(f):

@@ -8,6 +8,7 @@
     <link rel="preload" href="{{ url_for('static', filename='fonts/Oswald/Oswald-VariableFont_wght.ttf') }}" as="font" type="font/ttf" crossorigin>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.min.css') }}">
     <meta name="csrf-token" content="{{ csrf_token }}">
+    <meta name="email-job-poll-ms" content="{{ email_job_poll_ms }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/modern.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
 </head>
@@ -632,6 +633,10 @@
 
         // Attach CSRF token to every mutating fetch automatically
         const _csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+        // Email-job progress poll, configured in .env (see inject_poll_config).
+        const EMAIL_JOB_POLL_MS =
+            parseInt(document.querySelector('meta[name="email-job-poll-ms"]')?.content, 10) || 1500;
         const _origFetch = window.fetch;
         window.fetch = function(url, opts = {}) {
             const method = (opts.method || 'GET').toUpperCase();
@@ -766,7 +771,7 @@
             spinner.style.display = 'block';
             modal.classList.remove('hidden');
 
-            const POLL_INTERVAL = 1500; // ms
+            const POLL_INTERVAL = EMAIL_JOB_POLL_MS;
 
             const _poll = async () => {
                 try {

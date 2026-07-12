@@ -7,6 +7,8 @@
     <link rel="preload" href="{{ url_for('static', filename='fonts/Oswald/Oswald-VariableFont_wght.ttf') }}" as="font" type="font/ttf" crossorigin>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.min.css') }}">
     <meta name="csrf-token" content="{{ csrf_token }}">
+    <meta name="cache-status-poll-ms" content="{{ cache_status_poll_ms }}">
+    <meta name="refresh-progress-poll-ms" content="{{ refresh_progress_poll_ms }}">
     <script src="{{ url_for('static', filename='js/echarts.min.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/modern.css') }}">
 </head>
@@ -372,6 +374,12 @@
 
         // Attach CSRF token to every mutating fetch automatically
         const _csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+        // Polling intervals, configured in .env and served via <meta> (see inject_poll_config).
+        const _meta = (name, fallback) =>
+            parseInt(document.querySelector(`meta[name="${name}"]`)?.content, 10) || fallback;
+        const CACHE_STATUS_POLL_MS = _meta('cache-status-poll-ms', 30000);
+        const REFRESH_PROGRESS_POLL_MS = _meta('refresh-progress-poll-ms', 3000);
         const _origFetch = window.fetch;
         window.fetch = function(url, opts = {}) {
             const method = (opts.method || 'GET').toUpperCase();
@@ -387,24 +395,28 @@
         let chartViews = { enrollment: 'top10', users: 'top10' };
         let charts = {};
 
+        // Timestamp of the server-side cache the tables and charts on screen were built
+        // from. The status poll compares against it to notice a background refresh.
+        let renderedCacheTs = null;
+
         // Load cache status
         async function loadCacheStatus() {
             try {
                 const response = await fetch('/api/status');
                 const data = await response.json();
-                
+
                 if (data.cache && data.cache.cached) {
                     const statusText = document.getElementById('cache-status-text');
                     const ageText = document.getElementById('cache-age-text');
-                    
+
                     statusText.textContent = `Showing Data as on ${data.cache.cached_at_formatted}`;
                     ageText.textContent = `(${data.cache.cache_age_readable} ago)`;
-                    
+
                     // Update refresh button state
                     const refreshBtn = document.getElementById('refresh-btn');
                     const refreshIcon = document.getElementById('refresh-icon');
                     const refreshText = document.getElementById('refresh-text');
-                    
+
                     if (data.cache.refresh_in_progress) {
                         refreshBtn.disabled = true;
                         refreshIcon.classList.add('refresh-spinning');
@@ -413,6 +425,15 @@
                         refreshBtn.disabled = false;
                         refreshIcon.classList.remove('refresh-spinning');
                         refreshText.textContent = 'Get Latest Data';
+
+                        // The scheduler refreshed the cache behind our back — pull the new
+                        // numbers in so a tab left open never shows a stale dashboard.
+                        if (renderedCacheTs === null) {
+                            renderedCacheTs = data.cache.cache_timestamp;
+                        } else if (data.cache.cache_timestamp !== renderedCacheTs) {
+                            renderedCacheTs = data.cache.cache_timestamp;
+                            await loadDashboardData();
+                        }
                     }
                 } else {
                     document.getElementById('cache-status-text').textContent = 'Loading data...';
@@ -478,7 +499,11 @@
                         
                         if (!statusData.cache.refresh_in_progress) {
                             clearInterval(pollInterval);
-                            
+
+                            // Claim this snapshot before reloading, so the status poll does
+                            // not see a changed timestamp and fetch the same data twice.
+                            renderedCacheTs = statusData.cache.cache_timestamp;
+
                             // Reload data without page refresh
                             await loadDashboardData();
                             
@@ -496,7 +521,7 @@
                             // Update status while refreshing
                             loadCacheStatus();
                         }
-                    }, 3000); // Poll every 3 seconds
+                    }, REFRESH_PROGRESS_POLL_MS);
                 } else {
                     alert('Error: ' + data.error);
                     refreshBtn.disabled = false;
@@ -528,12 +553,15 @@
 
         // Load data on page load
         window.addEventListener('DOMContentLoaded', async () => {
-            // Load cache status first
-            loadCacheStatus();
-            
-            // Update cache status every 30 seconds
-            setInterval(loadCacheStatus, 30000);
-            
+            // Await this: it seeds renderedCacheTs, and seeding it before the data fetch
+            // keeps a refresh landing mid-boot on the safe side (a redundant reload rather
+            // than a stale table wearing a fresh timestamp).
+            await loadCacheStatus();
+
+            // Poll cache status; also re-renders the dashboard when the background
+            // scheduler has landed a fresher snapshot.
+            setInterval(loadCacheStatus, CACHE_STATUS_POLL_MS);
+
             // Load dashboard data
             await loadDashboardData();
         });

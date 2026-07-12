@@ -7,6 +7,8 @@
     <link rel="preload" href="{{ url_for('static', filename='fonts/Oswald/Oswald-VariableFont_wght.ttf') }}" as="font" type="font/ttf" crossorigin>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.min.css') }}">
     <meta name="csrf-token" content="{{ csrf_token }}">
+    <meta name="cache-status-poll-ms" content="{{ cache_status_poll_ms }}">
+    <meta name="refresh-progress-poll-ms" content="{{ refresh_progress_poll_ms }}">
     <script src="{{ url_for('static', filename='js/echarts.min.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/modern.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/assignments.css') }}">
@@ -346,6 +348,12 @@
     <script>
         // Attach CSRF token to every mutating fetch automatically
         const _csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+        // Polling intervals, configured in .env and served via <meta> (see inject_poll_config).
+        const _meta = (name, fallback) =>
+            parseInt(document.querySelector(`meta[name="${name}"]`)?.content, 10) || fallback;
+        const CACHE_STATUS_POLL_MS = _meta('cache-status-poll-ms', 30000);
+        const REFRESH_PROGRESS_POLL_MS = _meta('refresh-progress-poll-ms', 3000);
         const _origFetch = window.fetch;
         window.fetch = function(url, opts = {}) {
             const method = (opts.method || 'GET').toUpperCase();
@@ -1046,6 +1054,10 @@
         window.addEventListener('resize', ()=>{ Object.values(charts).forEach(c=>c&&c.resize()); if(_zoomedChart)_zoomedChart.resize(); });
 
         // ── Cache status + refresh (same data source as the main dashboard) ──
+        // Timestamp of the server-side cache the figures on screen were built from; the
+        // status poll compares against it to notice a background refresh.
+        let renderedCacheTs = null;
+
         async function loadCacheStatus(){
             try {
                 const res = await fetch('/api/status');
@@ -1063,6 +1075,15 @@
                         btn.disabled = true; icon.classList.add('refresh-spinning'); txt.textContent = 'Updating Data…';
                     } else {
                         btn.disabled = false; icon.classList.remove('refresh-spinning'); txt.textContent = 'Get Latest Data';
+
+                        // The scheduler refreshed the cache behind our back — pull the new
+                        // numbers in so a tab left open never shows stale completions.
+                        if(renderedCacheTs === null){
+                            renderedCacheTs = data.cache.cache_timestamp;
+                        } else if(data.cache.cache_timestamp !== renderedCacheTs){
+                            renderedCacheTs = data.cache.cache_timestamp;
+                            await loadSummary(selectedFy);
+                        }
                     }
                 } else {
                     statusText.textContent = 'Loading data…';
@@ -1090,6 +1111,9 @@
                         const sdata = await sres.json();
                         if(!sdata.cache.refresh_in_progress){
                             clearInterval(poll);
+                            // Claim this snapshot before reloading, so the status poll does
+                            // not see a changed timestamp and fetch the same data twice.
+                            renderedCacheTs = sdata.cache.cache_timestamp;
                             await loadSummary(selectedFy);
                             await loadCacheStatus();
                             reset();
@@ -1097,7 +1121,7 @@
                             loadCacheStatus();
                         }
                     } catch(e){ /* keep polling */ }
-                }, 3000);
+                }, REFRESH_PROGRESS_POLL_MS);
             } catch(err){
                 console.error('Error refreshing data:', err);
                 alert('Error refreshing data. Please try again.');
@@ -1128,9 +1152,13 @@
         }
 
         // ── Boot ─────────────────────────────────────────────────────────────
-        loadSummary('current');
-        loadCacheStatus();
-        setInterval(loadCacheStatus, 30000);
+        // Seed renderedCacheTs before the first data fetch, so a refresh landing mid-boot
+        // costs at most a redundant reload rather than leaving stale figures on screen.
+        (async () => {
+            await loadCacheStatus();
+            await loadSummary('current');
+            setInterval(loadCacheStatus, CACHE_STATUS_POLL_MS);
+        })();
     </script>
 </body>
 </html>
