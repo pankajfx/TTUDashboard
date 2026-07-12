@@ -143,12 +143,16 @@ def build_assignments(api_data):
 
 def print_summary(assignments, api_data):
     index = aa.build_api_index(api_data)
+    try:
+        history = aa.build_history_index(db.read_completion_history())
+    except Exception:
+        history = {}
     by_fy = defaultdict(int)
     print("\n{:>3}  {:<12} {:>6} {:>5} {:>5} {:>5}  {}".format(
         "id", "created", "users", "done", "stale", "rate%", "title"))
     print("-" * 100)
     for a in assignments:
-        p = aa.compute_assignment_progress(a, index)
+        p = aa.compute_assignment_progress(a, index, history)
         by_fy[p["fy_label"]] += 1
         print("{:>3}  {:<12} {:>6} {:>5} {:>5} {:>5}  {}".format(
             a["id"], a["created_date"][:10], p["total"], p["completed"],

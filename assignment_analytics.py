@@ -129,6 +129,43 @@ def build_api_index(api_data):
     return index
 
 
+def extract_completions(api_data):
+    """Yield ``(course, email, 'YYYY-MM-DD')`` for every record that is Completed
+    with a parseable date. Feeds the persistent completion-history ledger
+    (``db.record_completions``): the API overwrites its single date per
+    (course, user), so we harvest each snapshot's completions to preserve them."""
+    for record in api_data or []:
+        if (record.get("Course_Completion_Status") or "").strip() != "Completed":
+            continue
+        c = course_key(record)
+        e = (record.get("User_Mail_ID") or "").strip()
+        d = parse_completion(record.get("Course_Completion_Date_(YYYY-MM-DD)"))
+        if c and e and d is not None:
+            yield c, e, d.strftime("%Y-%m-%d")
+
+
+def build_history_index(history_rows):
+    """Index persistent completion-history rows by (course, email) -> [datetimes].
+
+    ``history_rows`` is an iterable of ``(course, email, completion_date_str)`` as
+    returned by ``db.read_completion_history()``. Blank/unparseable dates are
+    skipped. This bucket of prior-cycle completion dates is unioned with the live
+    snapshot in ``_classify_user`` so each assignment is judged against every date
+    ever observed, not just the API's latest (overwriting) value."""
+    index = defaultdict(list)
+    for row in history_rows or []:
+        try:
+            course, email, date_str = row
+        except (ValueError, TypeError):
+            continue
+        c = (course or "").strip()
+        e = (email or "").strip()
+        d = parse_completion(date_str)
+        if c and e and d is not None:
+            index[(c, e)].append(d)
+    return index
+
+
 def _completion_in_window(d, window_start, window_end) -> bool:
     """Does a completion datetime `d` fall inside the assignment's validity window?
 
@@ -145,10 +182,10 @@ def _completion_in_window(d, window_start, window_end) -> bool:
     return True
 
 
-def _classify_user(records, window_start, window_end):
-    """Given all API records for one (course, user) and the assignment's validity
-    window, return (status, percentage, completion_date_str, stale_bool).
+def _classify_live(records, window_start, window_end):
+    """Classify one (course, user) from the LIVE API snapshot only (no ledger).
 
+    Returns (status, percentage, completion_date_str, stale_bool).
     status ∈ {'completed', 'in_progress', 'not_started'}.
     A completion counts only if it falls within [window_start, window_end]
     (inclusive, day granularity; either bound may be None = open on that side).
@@ -196,7 +233,54 @@ def _classify_user(records, window_start, window_end):
     return "not_started", 0.0, "", False
 
 
-def compute_assignment_progress(assignment: dict, api_index) -> dict:
+def _classify_user(records, window_start, window_end, history_dates=None):
+    """Classify one (course, user) against an assignment window, unioning the live
+    API snapshot with the persistent completion-history ledger.
+
+    ``history_dates`` is the list of prior-cycle completion datetimes for this
+    (course, user) from the ledger (the API overwrites its single latest date, so
+    earlier cycles survive only there). The ledger can only ever *upgrade* a user's
+    standing toward Completed — it supplies extra completion DATES, never
+    in-progress or negative signal — so it never downgrades a live in_progress /
+    completed result. Returns (status, percentage, completion_date_str, stale_bool).
+
+    Precedence:
+      1. Any in-window completion (live OR ledger)        -> completed
+      2. Live snapshot shows a current attempt            -> in_progress
+      3. Only out-of-window completions (live or ledger)  -> not_started + stale
+      4. Nothing                                          -> not_started
+    """
+    status, pct, cdate, is_stale = _classify_live(records, window_start, window_end)
+
+    hist = [d for d in (history_dates or []) if d is not None]
+    if not hist or status == "completed":
+        # No ledger to add, or the live snapshot already counts an in-window
+        # completion — nothing the ledger could improve.
+        return status, pct, cdate, is_stale
+
+    # A ledger date inside this window proves completion for this cycle even after
+    # the API overwrote it away → upgrade to Completed.
+    in_window = [d for d in hist if _completion_in_window(d, window_start, window_end)]
+    if in_window:
+        latest = max(in_window)
+        return "completed", 100.0, latest.strftime("%Y-%m-%d"), False
+
+    # No in-window ledger date. Keep an active live re-attempt as in_progress
+    # (it outranks a stale prior finish).
+    if status == "in_progress":
+        return status, pct, cdate, is_stale
+
+    # Otherwise the user finished before, but outside this window → Not Started,
+    # flagged stale, annotated with the most recent prior finish (live or ledger).
+    stale_candidates = list(hist)
+    live_stale = parse_completion(cdate) if cdate else None
+    if live_stale is not None:
+        stale_candidates.append(live_stale)
+    latest_stale = max(stale_candidates).strftime("%Y-%m-%d") if stale_candidates else ""
+    return "not_started", 0.0, latest_stale, True
+
+
+def compute_assignment_progress(assignment: dict, api_index, history_index=None) -> dict:
     """Compute per-user progress + bucket totals for a single assignment,
     applying the staleness rule. `api_index` from build_api_index()."""
     course = (assignment.get("course_name") or "").strip()
@@ -216,8 +300,11 @@ def compute_assignment_progress(assignment: dict, api_index) -> dict:
     for email in emails:
         email = (email or "").strip()
         records = api_index.get((course, email), [])
-        status, pct, cdate, is_stale = _classify_user(records, window_start, window_end)
-        is_untouched = not records
+        hist = history_index.get((course, email), []) if history_index else []
+        status, pct, cdate, is_stale = _classify_user(records, window_start, window_end, hist)
+        # "Untouched" = never seen at all: not in the live snapshot AND no prior
+        # completion on record in the ledger.
+        is_untouched = not records and not hist
         name = ""
         if records:
             name = (records[0].get("Participant_Name") or "").strip()
@@ -300,13 +387,18 @@ def resolve_selected_fy(selected, assignments, now: datetime = None):
         return "all"
 
 
-def build_summary(assignments, api_data, selected="current", now: datetime = None) -> dict:
-    """Full payload for the FY dashboard for the given scope."""
+def build_summary(assignments, api_data, selected="current", now: datetime = None,
+                  history_index=None) -> dict:
+    """Full payload for the FY dashboard for the given scope.
+
+    ``history_index`` (from ``build_history_index(db.read_completion_history())``)
+    supplies prior-cycle completion dates the live API has overwritten, so each
+    assignment is classified against the full bucket of dates ever observed."""
     index = build_api_index(api_data)
     resolved = resolve_selected_fy(selected, assignments, now)
 
     # progress for every assignment (needed to filter + aggregate)
-    progressed = [compute_assignment_progress(a, index) for a in assignments]
+    progressed = [compute_assignment_progress(a, index, history_index) for a in assignments]
     if resolved == "all":
         scoped = progressed
     else:

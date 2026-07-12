@@ -79,6 +79,21 @@ def _create_tables(conn):
             timestamp          TEXT,   -- ISO 8601
             cached_at_readable TEXT
         );
+        -- Append-only ledger of every distinct completion date ever observed.
+        -- The TCS iON API returns only ONE (latest) completion date per
+        -- (course, user) and overwrites it in place when a user re-does a
+        -- recurring course, so prior-cycle dates survive only if we capture them
+        -- here across snapshots. Dedup is by the (course, email, date) key; each
+        -- assignment is then judged against this whole bucket, not the API's
+        -- single moving value.
+        CREATE TABLE IF NOT EXISTS completion_history (
+            course          TEXT NOT NULL,
+            email           TEXT NOT NULL,
+            completion_date TEXT NOT NULL,   -- 'YYYY-MM-DD'
+            first_seen      TEXT,            -- ISO 8601, when first observed
+            last_seen       TEXT,            -- ISO 8601, when most recently observed
+            PRIMARY KEY (course, email, completion_date)
+        );
     ''')
 
 
@@ -229,6 +244,69 @@ def write_cache(data, timestamp):
         conn.rollback()
         print(f'db.write_cache error: {e}')
         return False
+
+
+# ── completion-history ledger ───────────────────────────────────────────────
+def record_completions(rows, timestamp=None):
+    """Fold observed completions into the append-only completion_history ledger.
+
+    ``rows`` is an iterable of ``(course, email, completion_date_str)`` tuples —
+    typically ``assignment_analytics.extract_completions(api_data)``. Each distinct
+    (course, email, date) is inserted once (INSERT OR IGNORE on the primary key);
+    a repeat sighting just refreshes ``last_seen``. This is how prior-cycle dates
+    survive the API overwriting its single latest value per (course, user).
+
+    Returns the count of NEW (previously unseen) completion dates recorded."""
+    ts = timestamp or datetime.now()
+    ts = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
+    conn = _connect()
+    new = 0
+    try:
+        _create_tables(conn)  # tolerate an older DB that predates this table
+        for row in rows or []:
+            try:
+                course, email, date_str = row
+            except (ValueError, TypeError):
+                continue
+            course = (course or '').strip()
+            email = (email or '').strip()
+            date_str = (date_str or '').strip()
+            if not (course and email and date_str):
+                continue
+            cur = conn.execute(
+                'INSERT OR IGNORE INTO completion_history '
+                '(course, email, completion_date, first_seen, last_seen) '
+                'VALUES (?, ?, ?, ?, ?)',
+                (course, email, date_str, ts, ts))
+            if cur.rowcount:
+                new += 1
+            else:
+                conn.execute(
+                    'UPDATE completion_history SET last_seen = ? '
+                    'WHERE course = ? AND email = ? AND completion_date = ?',
+                    (ts, course, email, date_str))
+        conn.commit()
+        return new
+    except Exception as e:
+        conn.rollback()
+        print(f'db.record_completions error: {e}')
+        return 0
+    finally:
+        conn.close()
+
+
+def read_completion_history():
+    """Return every ledger row as a list of ``(course, email, completion_date)``
+    tuples, for building the (course, email) -> [dates] index the analytics engine
+    unions with the live snapshot."""
+    conn = _connect()
+    try:
+        _create_tables(conn)  # tolerate an older DB that predates this table
+        rows = conn.execute(
+            'SELECT course, email, completion_date FROM completion_history').fetchall()
+    finally:
+        conn.close()
+    return [(r['course'], r['email'], r['completion_date']) for r in rows]
 
 
 # ── migration / bootstrap ───────────────────────────────────────────────────

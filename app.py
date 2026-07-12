@@ -1213,6 +1213,30 @@ def load_cache_from_file():
         logger.error(f"Error loading cache: {e}")
     return None, None
 
+def record_completion_history(data, timestamp):
+    """Fold an API snapshot's completions into the persistent ledger (db.py).
+    Best-effort: never let a ledger hiccup break a cache refresh."""
+    try:
+        new = db.record_completions(aa.extract_completions(data), timestamp)
+        if new:
+            logger.info(f"Completion ledger: recorded {new} new completion date(s)")
+        return new
+    except Exception as e:
+        logger.error(f"Error recording completion history: {e}")
+        return 0
+
+
+def _history_index():
+    """(course, email) -> [completion datetimes] from the persistent ledger, for
+    the assignment analytics engine. Empty on any error so the dashboard degrades
+    to live-snapshot-only behaviour rather than failing."""
+    try:
+        return aa.build_history_index(db.read_completion_history())
+    except Exception as e:
+        logger.error(f"Error building completion-history index: {e}")
+        return {}
+
+
 def fetch_fresh_data_from_api():
     """Fetch fresh data from API (blocking call)"""
     logger.info("Fetching fresh data from API (this may take 3+ minutes)...")
@@ -1250,12 +1274,15 @@ def refresh_cache_background():
         logger.info("Background cache refresh started...")
         data = fetch_fresh_data_from_api()
         now = datetime.now()
-        
+
         with _cache_lock:
             _data_cache = data
             _cache_timestamp = now
             save_cache_to_file(data, now)
-        
+        # Harvest this snapshot's completions into the append-only ledger so
+        # prior-cycle dates survive the API overwriting its single latest value.
+        record_completion_history(data, now)
+
         logger.info(f"Background cache refresh completed at {now.strftime('%Y-%m-%d %H:%M:%S')}")
     except Exception as e:
         logger.error(f"Error in background cache refresh: {e}")
@@ -1296,7 +1323,10 @@ def initialize_cache():
         with _cache_lock:
             _data_cache = data
             _cache_timestamp = timestamp
-        
+        # Capture the loaded snapshot's completions in case the app was down when
+        # the API last changed (idempotent — dedup'd by the ledger's primary key).
+        record_completion_history(data, timestamp)
+
         # Check if cache is too old
         age_minutes = (datetime.now() - timestamp).total_seconds() / 60
         if age_minutes > AUTO_REFRESH_INTERVAL_MINUTES:
@@ -1582,7 +1612,8 @@ def api_assignments_summary():
     """Full FY dashboard payload for a scope (?fy=current|all|<start_year>)."""
     try:
         fy = request.args.get('fy', 'current')
-        summary = aa.build_summary(_load_assignments(), load_data(), selected=fy)
+        summary = aa.build_summary(_load_assignments(), load_data(), selected=fy,
+                                   history_index=_history_index())
         return jsonify(summary)
     except Exception:
         import traceback
@@ -1599,7 +1630,7 @@ def api_assignment_progress(assignment_id):
         if not assignment:
             return jsonify({'error': 'Assignment not found'}), 404
         index = aa.build_api_index(load_data())
-        return jsonify(aa.compute_assignment_progress(assignment, index))
+        return jsonify(aa.compute_assignment_progress(assignment, index, _history_index()))
     except Exception:
         import traceback
         logger.error(f"Error in api_assignment_progress: {traceback.format_exc()}")
@@ -1614,12 +1645,13 @@ def api_fy_user(user_email):
         fy = request.args.get('fy', 'current')
         assignments = _load_assignments()
         index = aa.build_api_index(load_data())
+        history_index = _history_index()
         resolved = aa.resolve_selected_fy(fy, assignments)
 
         rows = []
         user_name = ''
         for a in assignments:
-            p = aa.compute_assignment_progress(a, index)
+            p = aa.compute_assignment_progress(a, index, history_index)
             if resolved != 'all' and p['fy_start_year'] != resolved:
                 continue
             u = next((x for x in p['users'] if x['email'] == user_email), None)
