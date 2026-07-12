@@ -430,6 +430,14 @@ UNTRACKED_BUCKET = "Untracked"
 UNSPECIFIED_BUCKET = "Unspecified"
 DIMENSIONS = ("department", "location", "job_role")
 
+# The department / location / role dropdowns collapse both kinds of "nothing on
+# record" into one bucket: a roster field the upload left blank, and an untracked
+# user, who has no profile at all because the API does not carry these fields.
+# NA_FILTER_VALUE (not the literal "NA") is what travels on the query string, so a
+# department genuinely *named* "NA" can never collide with the empty bucket.
+NA_BUCKET = "NA"
+NA_FILTER_VALUE = "__na__"
+
 
 def build_profile_index(users):
     """email(lowercased) -> profile dict, from ``db.read_users()['users']``."""
@@ -488,6 +496,104 @@ def drop_untracked(p, profiles):
     """Same assignment with untracked enrollees removed from its user list and every
     count rebuilt, so the KPIs, charts and tables all agree with the switch."""
     return _recount(p, [u for u in p["users"] if is_tracked(u["email"], profiles)])
+
+
+def _profile_value(profile, dimension) -> str:
+    """One roster row's department / location / role, or "" if it carries none — which
+    is always the case for an untracked user, who has no profile at all. This is the
+    single definition of "nothing on record", i.e. of NA."""
+    if not profile or not profile.get("tracked"):
+        return ""
+    return (profile.get(dimension) or "").strip()
+
+
+def profile_field(email, profiles, dimension) -> str:
+    """As _profile_value, but looked up by email. An email with no roster row at all is
+    an untracked user, so it too has nothing on record."""
+    return _profile_value((profiles or {}).get((email or "").strip().lower()), dimension)
+
+
+def _counted_population(profiles, include_untracked, emails):
+    """The roster rows for the users actually being counted.
+
+    ``emails`` — every assignment's enrollees — is the honest population, and an
+    enrollee with no roster row at all is untracked by definition: the API reported
+    them and nobody ever uploaded them. Such a user must still be able to put NA on
+    the menu, which is exactly the case before any roster exists, when *every* user is
+    one of them."""
+    if emails is None:
+        rows = list((profiles or {}).values())
+    else:
+        rows = [(profiles or {}).get((e or "").strip().lower()) or {"tracked": False}
+                for e in dict.fromkeys(emails)]
+    return [p for p in rows if include_untracked or p.get("tracked")]
+
+
+def filter_options(profiles, include_untracked=True, emails=None) -> dict:
+    """The selectable values for each dropdown.
+
+    The values come from the roster itself — whatever 'Add user' and the bulk upload
+    have put there — rather than from whichever users happen to fall in the current FY
+    scope, so the lists stay put as the scope changes instead of shifting under the
+    user.
+
+    The NA option is offered only when somebody in the counted population really has
+    nothing on record. With untracked users included that is usually true (they have
+    no profile at all); with them excluded it is true only if a roster field was left
+    blank. Before any roster is uploaded every user is untracked, so each list
+    degenerates to All + NA — which is the honest answer, not a bug."""
+    roster = [p for p in (profiles or {}).values() if p.get("tracked")]
+    counted = _counted_population(profiles, include_untracked, emails)
+    out = {}
+    for dim in DIMENSIONS:
+        values = sorted({v for v in (_profile_value(p, dim) for p in roster) if v},
+                        key=str.casefold)
+        opts = [{"value": v, "label": v} for v in values]
+        if any(not _profile_value(p, dim) for p in counted):
+            opts.append({"value": NA_FILTER_VALUE, "label": NA_BUCKET})
+        out[dim] = opts
+    return out
+
+
+def normalize_filters(raw, options=None) -> dict:
+    """{dimension: requested value} -> only the dimensions that are really constrained.
+
+    Absent, blank or "all" means no constraint. When ``options`` is supplied, a value
+    that is not among them is dropped rather than honoured: that is what makes a
+    selection self-heal when the choice it named stops existing (e.g. NA was picked
+    because untracked users were being counted, and then they were switched off)."""
+    out = {}
+    for dim in DIMENSIONS:
+        value = str((raw or {}).get(dim) or "").strip()
+        if not value or value.lower() == "all":
+            continue
+        if options is not None:
+            allowed = {o["value"].casefold() for o in options.get(dim, ())}
+            if value.casefold() not in allowed:
+                continue
+        out[dim] = value
+    return out
+
+
+def matches_filters(email, profiles, filters) -> bool:
+    """Does this user satisfy every active dropdown? NA matches exactly the users with
+    nothing on record for that field."""
+    for dim, wanted in (filters or {}).items():
+        have = profile_field(email, profiles, dim)
+        if wanted == NA_FILTER_VALUE:
+            if have:
+                return False
+        elif have.casefold() != wanted.casefold():
+            return False
+    return True
+
+
+def apply_filters(p, profiles, filters):
+    """Same assignment with non-matching enrollees removed and every count rebuilt —
+    the same mechanism as drop_untracked, so a filtered page stays internally
+    consistent from the KPIs down to the per-assignment rows."""
+    return _recount(p, [u for u in p["users"]
+                        if matches_filters(u["email"], profiles, filters)])
 
 
 def _period_row(key, label, sublabel, rows):
@@ -557,7 +663,7 @@ def _build_dimensions(scoped, profiles):
 
 def build_summary(assignments, api_data, selected="current", now: datetime = None,
                   history_index=None, quarter=None, profiles=None,
-                  include_untracked=True) -> dict:
+                  include_untracked=True, filters=None) -> dict:
     """Full payload for the FY dashboard for the given scope.
 
     ``history_index`` (from ``build_history_index(db.read_completion_history())``)
@@ -569,11 +675,26 @@ def build_summary(assignments, api_data, selected="current", now: datetime = Non
     ``quarter`` (1-4, or None for the whole year) narrows a financial-year scope to
     one quarter; it is ignored when the scope is 'all'. ``include_untracked=False``
     drops every enrollment belonging to a user who was never uploaded, from the KPIs
-    down to the per-assignment rows."""
+    down to the per-assignment rows.
+
+    ``filters`` ({'department'/'location'/'job_role': value}) narrows the population to
+    the users matching every named dimension, in exactly the same way and at exactly
+    the same point as ``include_untracked``. A value of NA_FILTER_VALUE selects the
+    users with nothing on record for that field; anything absent, blank or 'all' is no
+    constraint at all."""
     index = build_api_index(api_data)
     resolved = resolve_selected_fy(selected, assignments, now)
     profiles = profiles or {}
     q = None if resolved == "all" else parse_quarter(quarter)
+
+    # The dropdowns are built before the selection is honoured, so a value that no
+    # longer exists (NA, once untracked users stop being counted) is quietly dropped
+    # rather than filtering the page down to nothing the user cannot then undo. They
+    # are built from every assignment's enrollees, not just the ones in scope, so the
+    # lists do not shift as the user moves between financial years and quarters.
+    enrolled = [e for a in assignments for e in (a.get("user_emails") or [])]
+    options = filter_options(profiles, include_untracked, enrolled)
+    filters = normalize_filters(filters, options)
 
     # progress for every assignment (needed to filter + aggregate)
     progressed = [compute_assignment_progress(a, index, history_index) for a in assignments]
@@ -582,6 +703,13 @@ def build_summary(assignments, api_data, selected="current", now: datetime = Non
         # charts, per-assignment rows, dimensions — is computed from the same
         # population and cannot disagree.
         progressed = [drop_untracked(p, profiles) for p in progressed]
+    if filters:
+        # Same up-front narrowing for the department / location / role dropdowns. An
+        # assignment nobody in the filtered population is enrolled in is dropped
+        # outright: a table of assignments all reading "0 enrolled" is noise, and
+        # counting them would make "Total Assignments" answer a question nobody asked.
+        progressed = [apply_filters(p, profiles, filters) for p in progressed]
+        progressed = [p for p in progressed if p["total"]]
 
     if resolved == "all":
         fy_scoped = progressed
@@ -697,6 +825,11 @@ def build_summary(assignments, api_data, selected="current", now: datetime = Non
         "period_kind": ("fy" if resolved == "all" else "quarter"),
         "periods": periods,
         "include_untracked": include_untracked,
+        # Echoed back already normalized, so the dropdowns can simply mirror what the
+        # server actually applied instead of tracking it independently.
+        "filters": {dim: filters.get(dim, "all") for dim in DIMENSIONS},
+        "filter_options": options,
+        "filters_active": bool(filters),
         "kpis": kpis,
         "assignments": assignment_rows,
         "courses": course_rows,

@@ -41,16 +41,21 @@
             gap: .75rem;
             margin-bottom: .75rem;
         }
+        /* One row, always. The tiles share the width evenly and shrink together; on a
+           narrow screen the row scrolls sideways rather than wrapping, so the quarters
+           stay side-by-side and comparable at a glance. */
         .period-cards {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: .5rem;
+            display: flex;
+            gap: .4rem;
+            overflow-x: auto;
+            padding-bottom: .15rem;
+            scrollbar-width: thin;
         }
-        @media (min-width: 900px) { .period-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-
         .period-card {
+            flex: 1 1 0;
+            min-width: 112px;
             text-align: left;
-            padding: .6rem .75rem;
+            padding: .4rem .5rem;
             border: 1px solid var(--border);
             border-radius: var(--radius-sm);
             background: #fff;
@@ -60,12 +65,65 @@
         .period-card:hover { border-color: var(--brand-2); transform: translateY(-1px); box-shadow: var(--shadow); }
         .period-card.active { border-color: var(--brand); box-shadow: 0 0 0 2px rgba(13, 148, 136, .18); background: #f0fdfa; }
         .period-card.empty { opacity: .55; }
-        .period-card .p-label { font-size: .8rem; font-weight: 700; color: var(--text); }
-        .period-card .p-range { font-size: .68rem; color: var(--text-3); margin-left: .25rem; font-weight: 500; }
-        .period-card .p-rate  { font-size: 1.25rem; font-weight: 700; margin: .15rem 0; }
-        .period-card .p-meta  { font-size: .68rem; color: var(--text-2); }
-        .period-card .p-bar   { height: 4px; border-radius: 2px; background: #e5e7eb; overflow: hidden; margin-top: .3rem; }
+        .period-card .p-label { font-size: .72rem; font-weight: 700; color: var(--text); }
+        .period-card .p-range { font-size: .6rem; color: var(--text-3); margin-left: .2rem; font-weight: 500; }
+        .period-card .p-rate  { font-size: .95rem; font-weight: 700; margin: .05rem 0; line-height: 1.2; }
+        .period-card .p-meta  { font-size: .6rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .period-card .p-bar   { height: 3px; border-radius: 2px; background: #e5e7eb; overflow: hidden; margin-top: .25rem; }
         .period-card .p-bar > span { display: block; height: 100%; }
+
+        /* ---- Roster filters (department / location / role) ---- */
+        .filter-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: .4rem;
+        }
+        .filter-field {
+            display: inline-flex;
+            align-items: center;
+            gap: .3rem;
+            font-size: .62rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .02em;
+            color: var(--text-3);
+        }
+        .filter-field select {
+            font-size: .75rem;
+            font-weight: 600;
+            text-transform: none;
+            letter-spacing: 0;
+            color: var(--text);
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: .3rem .55rem;
+            max-width: 150px;
+            cursor: pointer;
+        }
+        .filter-field select:hover { border-color: var(--brand-2); }
+        .filter-field select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 2px rgba(13, 148, 136, .15); }
+        /* An active (non-"All") filter is tinted, so it is obvious at a glance why the
+           figures below are smaller than expected. */
+        .filter-field select.on { border-color: var(--brand); background: #f0fdfa; color: var(--brand); }
+        .filter-clear {
+            font-size: .7rem;
+            font-weight: 700;
+            color: var(--brand);
+            background: #f0fdfa;
+            border: 1px solid var(--brand);
+            border-radius: 999px;
+            padding: .3rem .6rem;
+            cursor: pointer;
+        }
+        .filter-clear:hover { background: #ccfbf1; }
+        .filter-note {
+            font-size: .72rem;
+            color: var(--text-2);
+            margin-bottom: .5rem;
+        }
+        .filter-note b { color: var(--brand); }
 
         /* ---- Include-untracked switch ---- */
         .untracked-toggle {
@@ -200,13 +258,29 @@
                     <p class="text-xs sm:text-sm font-semibold text-gray-500 uppercase tracking-wide" id="period-title">Quarters</p>
                     <p class="text-xs text-gray-500" id="period-note">Click a quarter to narrow every figure below to it</p>
                 </div>
-                <label class="untracked-toggle" title="Untracked users appear in the API but were never uploaded on the roster, so they have no department, location or role. Uncheck to exclude them from every figure on this page.">
-                    <input type="checkbox" id="include-untracked" checked onchange="onUntrackedChange(this.checked)">
-                    <span>Include untracked users</span>
-                    <span class="untracked-count" id="untracked-count"></span>
-                </label>
+                <div class="filter-bar">
+                    <label class="filter-field" title="Department, from the uploaded roster. NA = nothing on record.">
+                        <span>Dept</span>
+                        <select id="filter-department" onchange="onFilterChange('department', this.value)"></select>
+                    </label>
+                    <label class="filter-field" title="Location, from the uploaded roster. NA = nothing on record.">
+                        <span>Location</span>
+                        <select id="filter-location" onchange="onFilterChange('location', this.value)"></select>
+                    </label>
+                    <label class="filter-field" title="Role, from the uploaded roster. NA = nothing on record.">
+                        <span>Role</span>
+                        <select id="filter-job_role" onchange="onFilterChange('job_role', this.value)"></select>
+                    </label>
+                    <button type="button" id="filter-clear" class="filter-clear hidden" onclick="clearFilters()">Clear filters</button>
+                    <label class="untracked-toggle" title="Untracked users appear in the API but were never uploaded on the roster, so they have no department, location or role. Uncheck to exclude them from every figure on this page.">
+                        <input type="checkbox" id="include-untracked" checked onchange="onUntrackedChange(this.checked)">
+                        <span>Include untracked users</span>
+                        <span class="untracked-count" id="untracked-count"></span>
+                    </label>
+                </div>
             </div>
             <div id="untracked-warning" class="untracked-warning hidden"></div>
+            <p id="filter-note" class="filter-note hidden"></p>
             <div class="period-cards" id="period-cards"></div>
         </div>
 
@@ -432,6 +506,13 @@
         let currentTab = 'assignments';
         let currentDim = 'department'; // department | location | job_role
         const DIM_LABELS = { department:'Department', location:'Location', job_role:'Role' };
+        const DIMS = ['department', 'location', 'job_role'];
+        // Roster filters. 'all' = unconstrained; NA_VALUE = users with nothing on record
+        // for that field (roster left it blank, or they were never uploaded at all).
+        // The server is the authority: every load overwrites this from summary.filters,
+        // so a selection whose option has disappeared self-heals back to 'all'.
+        const NA_VALUE = '__na__';
+        let filters = { department:'all', location:'all', job_role:'all' };
         const charts = {};
         const chartViews = { perCourse:'top10', byAssignment:'top10' };
         let _zoomedChart = null;
@@ -466,9 +547,12 @@
             users: [
                 {key:'name', label:'User', type:'str', fmt:(v,row)=> v || row.email.split('@')[0]},
                 {key:'email', label:'Email', type:'str'},
-                {key:'department', label:'Department', type:'str', fmt:(v,row)=> v || (row.tracked ? '—' : 'Untracked')},
-                {key:'location', label:'Location', type:'str', fmt:(v,row)=> v || (row.tracked ? '—' : 'Untracked')},
-                {key:'job_role', label:'Role', type:'str', fmt:(v,row)=> v || (row.tracked ? '—' : 'Untracked')},
+                // NA covers both kinds of "nothing on record": a roster field left blank,
+                // and an untracked user, who has no profile at all because the API does
+                // not carry department / location / role.
+                {key:'department', label:'Department', type:'str', fmt:(v)=> v || 'NA'},
+                {key:'location', label:'Location', type:'str', fmt:(v)=> v || 'NA'},
+                {key:'job_role', label:'Role', type:'str', fmt:(v)=> v || 'NA'},
                 {key:'assignments_count', label:'# Assignments', type:'num'},
                 {key:'courses_count', label:'# Courses', type:'num'},
                 {key:'completed', label:'Done', type:'num'},
@@ -507,7 +591,10 @@
                 const params = new URLSearchParams({
                     fy: fy,
                     quarter: selectedQuarter,
-                    include_untracked: includeUntracked ? 'true' : 'false'
+                    include_untracked: includeUntracked ? 'true' : 'false',
+                    department: filters.department,
+                    location: filters.location,
+                    job_role: filters.job_role
                 });
                 const res = await fetch('/api/assignments-summary?' + params.toString());
                 if(!res.ok) throw new Error('HTTP ' + res.status);
@@ -517,7 +604,13 @@
                 // The server ignores a quarter when the scope is all-FY; mirror that
                 // back into the UI so the strip and the data never disagree.
                 selectedQuarter = summary.quarter ? String(summary.quarter) : 'all';
+                // Likewise for the roster filters: the server drops a selection whose
+                // option no longer exists, so take back what it actually applied rather
+                // than leaving a dropdown showing a filter that is not in force.
+                filters = Object.assign({department:'all', location:'all', job_role:'all'},
+                                        summary.filters || {});
                 populateFySelect();
+                populateFilters();
                 document.getElementById('fy-scope-note').textContent =
                     (summary.selected === 'all') ? 'Analysing assignments across all financial years'
                     : 'Analysing assignments created in FY ' + summary.selected_label;
@@ -525,16 +618,28 @@
 
                 renderPeriods();
                 renderUntrackedToggle();
+                renderFilterNote();
 
                 if(!summary.kpis.total_assignments){
                     document.getElementById('dashboard').classList.add('hidden');
                     const scope = (summary.selected === 'all')
                         ? 'across all financial years'
                         : ('in FY ' + summary.selected_label + (summary.quarter ? (' · ' + summary.quarter_label) : ''));
-                    document.getElementById('empty-title').textContent = 'No assignments ' + scope;
-                    document.getElementById('empty-note').textContent = summary.quarter
-                        ? 'Pick another quarter above, or switch financial year.'
-                        : 'Pick another financial year above, or create assignments in Settings.';
+                    // With a filter on, "no assignments" almost always means "nobody in
+                    // this department/location/role is enrolled in any of them" — say so,
+                    // otherwise it reads as though the FY itself were empty.
+                    if(summary.filters_active){
+                        document.getElementById('empty-title').textContent =
+                            'No assignments match ' + activeFilterText() + ' ' + scope;
+                        document.getElementById('empty-note').textContent =
+                            'Nobody matching these filters is enrolled in an assignment here. '
+                            + 'Widen a filter above, or clear them all.';
+                    } else {
+                        document.getElementById('empty-title').textContent = 'No assignments ' + scope;
+                        document.getElementById('empty-note').textContent = summary.quarter
+                            ? 'Pick another quarter above, or switch financial year.'
+                            : 'Pick another financial year above, or create assignments in Settings.';
+                    }
                     document.getElementById('empty-state').classList.remove('hidden');
                     return;
                 }
@@ -567,6 +672,52 @@
             selectedFy = v;
             selectedQuarter = 'all';   // a quarter of the old FY means nothing in the new one
             loadSummary(v);
+        }
+
+        // ── Roster filters (department / location / role) ─────────────────────
+        // The options come from the roster, not from the current FY scope, so the lists
+        // do not shift under the user as they move between years and quarters.
+        function populateFilters(){
+            const options = summary.filter_options || {};
+            DIMS.forEach(dim=>{
+                const sel = document.getElementById('filter-' + dim);
+                const chosen = filters[dim] || 'all';
+                let html = '<option value="all">All</option>';
+                (options[dim] || []).forEach(o=>{
+                    html += '<option value="' + h(o.value) + '">' + h(o.label) + '</option>';
+                });
+                sel.innerHTML = html;
+                sel.value = chosen;
+                sel.classList.toggle('on', chosen !== 'all');
+            });
+            document.getElementById('filter-clear').classList.toggle('hidden', !summary.filters_active);
+        }
+
+        function activeFilterText(){
+            const options = summary.filter_options || {};
+            return DIMS.filter(dim=> filters[dim] && filters[dim] !== 'all').map(dim=>{
+                const chosen = filters[dim];
+                const opt = (options[dim] || []).find(o=> o.value === chosen);
+                return DIM_LABELS[dim] + ' = ' + (opt ? opt.label : chosen);
+            }).join(' · ');
+        }
+
+        function renderFilterNote(){
+            const note = document.getElementById('filter-note');
+            if(!summary.filters_active){ note.classList.add('hidden'); return; }
+            note.innerHTML = 'Filtered to <b>' + h(activeFilterText()) + '</b> — the KPIs, charts, '
+                + 'breakdown and all three tables below count only these users.';
+            note.classList.remove('hidden');
+        }
+
+        function onFilterChange(dim, value){
+            filters[dim] = value || 'all';
+            loadSummary(selectedFy);
+        }
+
+        function clearFilters(){
+            filters = { department:'all', location:'all', job_role:'all' };
+            loadSummary(selectedFy);
         }
 
         // ── Period strip (quarters, or financial years when scope = All) ─────
@@ -916,7 +1067,7 @@
             const hints = {
                 assignments:'Tip: click an assignment row to see per-user progress (completions before the assignment date count as Not Started).',
                 courses:'Courses aggregated across all assignments in the selected financial year.',
-                users:'Tip: click a user row to see their assignment-by-assignment progress.'
+                users:'Tip: click a user row to see their assignment-by-assignment progress. “NA” means no department, location or role is on record — the roster left it blank, or the user was never uploaded at all.'
             };
             document.getElementById('table-hint').textContent = hints[tab];
         }

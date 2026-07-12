@@ -1961,6 +1961,14 @@ def _include_untracked_arg():
     return raw not in ('false', '0', 'no')
 
 
+def _dimension_filters_arg():
+    """?department=&location=&job_role= — the three roster dropdowns. Absent or 'all'
+    means unconstrained; the NA sentinel selects users with nothing on record for that
+    field. The engine validates the values against the options it built, so an unknown
+    one is ignored rather than trusted."""
+    return {dim: request.args.get(dim) for dim in aa.DIMENSIONS}
+
+
 @app.route('/assignments-dashboard')
 @login_required
 def assignments_dashboard():
@@ -1977,6 +1985,9 @@ def api_assignments_summary():
     ?quarter=1..4|all             — narrow an FY scope to one of its quarters
     ?include_untracked=true|false — count users who are in the API but not on the
                                     uploaded roster
+    ?department= ?location= ?job_role=
+                                  — narrow to one roster department / location / role
+                                    ('all' or absent = no constraint)
     """
     try:
         fy = request.args.get('fy', 'current')
@@ -1985,7 +1996,8 @@ def api_assignments_summary():
             history_index=_history_index(),
             quarter=request.args.get('quarter'),
             profiles=_user_profiles(),
-            include_untracked=_include_untracked_arg())
+            include_untracked=_include_untracked_arg(),
+            filters=_dimension_filters_arg())
         return jsonify(summary)
     except Exception:
         import traceback
