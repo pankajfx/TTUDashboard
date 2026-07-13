@@ -301,21 +301,31 @@ def superadmin_required(f):
 # dispatch to the database by filename. Any other filename still falls back to
 # plain JSON on disk (e.g. bundled/legacy data).
 def load_json_file(filename, default=None):
-    """Load a data store (SQLite-backed for users/assignments; JSON otherwise)."""
+    """Load a data store (SQLite-backed for users/assignments; JSON otherwise).
+
+    A failed read of a SQLite-backed store propagates. It must not fall back to an
+    empty default: callers follow a load -> mutate -> save cycle, and a save rewrites
+    the whole table (db.write_users starts with DELETE FROM users). Handing them an
+    empty collection after a read error would turn a transient database fault into a
+    wiped roster, and would make a broken database look exactly like "no users yet".
+    """
+    if filename == USERS_FILE:
+        return db.read_users()
+    if filename == ASSIGNMENTS_FILE:
+        return db.read_assignments()
     try:
-        if filename == USERS_FILE:
-            return db.read_users()
-        if filename == ASSIGNMENTS_FILE:
-            return db.read_assignments()
         if os.path.exists(filename):
             with open(filename, 'r', encoding='utf-8') as f:
                 return json.load(f)
-    except Exception as e:
-        print(f"Error loading {filename}: {e}")
+    except Exception:
+        logger.exception(f"Error loading {filename}")
     return default if default is not None else {}
 
 def save_json_file(filename, data):
-    """Persist a data store (SQLite-backed for users/assignments; JSON otherwise)."""
+    """Persist a data store (SQLite-backed for users/assignments; JSON otherwise).
+
+    Returns True on success. A False is a lost write — callers must not ignore it.
+    """
     try:
         if filename == USERS_FILE:
             return db.write_users(data)
@@ -324,8 +334,8 @@ def save_json_file(filename, data):
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         return True
-    except Exception as e:
-        print(f"Error saving {filename}: {e}")
+    except Exception:
+        logger.exception(f"Error saving {filename}")
         return False
 
 # Data stores. The filenames double as the dispatch keys above and as the source
@@ -417,53 +427,55 @@ def sync_users_from_api():
     the authentic roster (which is what the admin uploads/adds), so they carry no
     department / location / role and the dashboards can exclude them with one switch.
     An existing user is never touched here: a bulk upload that already augmented them
-    with a profile keeps it, and keeps tracked=1."""
-    try:
-        # Load API data
-        data = load_data()
+    with a profile keeps it, and keeps tracked=1.
 
-        # Extract unique user emails from API
-        api_users = {}
-        for record in data:
-            email = record.get('User_Mail_ID', '').strip()
-            name = record.get('Participant_Name', '').strip()
-            if email and email.lower() not in api_users:
-                api_users[email.lower()] = (email, name)
+    Returns the number of new users added, and raises if the sync could not complete.
+    It must not swallow failures and report 0: a silent 0 is indistinguishable from
+    "the API had nothing new", which is what let a broken database masquerade as a
+    successful sync."""
+    # Load API data
+    data = load_data()
 
-        # Load existing local users
-        users_data = load_json_file(USERS_FILE, {'users': []})
-        existing_users = users_data.get('users', [])
+    # Extract unique user emails from API
+    api_users = {}
+    for record in data:
+        email = record.get('User_Mail_ID', '').strip()
+        name = record.get('Participant_Name', '').strip()
+        if email and email.lower() not in api_users:
+            api_users[email.lower()] = (email, name)
 
-        # Case-insensitive lookup: the API and an uploaded roster can spell the same
-        # address with different casing, and they must not become two user rows.
-        existing_emails = {(u.get('email') or '').strip().lower() for u in existing_users}
+    # Load existing local users
+    users_data = load_json_file(USERS_FILE, {'users': []})
+    existing_users = users_data.get('users', [])
 
-        # Add new users from API that don't exist locally
-        new_users_added = 0
-        for key, (email, name) in api_users.items():
-            if key not in existing_emails:
-                existing_users.append({
-                    'email': email,
-                    'name': name,
-                    'source': 'api',
-                    'added_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'department': '',
-                    'location': '',
-                    'job_role': '',
-                    'tracked': False,
-                })
-                new_users_added += 1
+    # Case-insensitive lookup: the API and an uploaded roster can spell the same
+    # address with different casing, and they must not become two user rows.
+    existing_emails = {(u.get('email') or '').strip().lower() for u in existing_users}
 
-        # Save updated users list
-        if new_users_added > 0:
-            users_data['users'] = existing_users
-            save_json_file(USERS_FILE, users_data)
-            logger.info(f"Synced {new_users_added} new (untracked) users from API")
+    # Add new users from API that don't exist locally
+    new_users_added = 0
+    for key, (email, name) in api_users.items():
+        if key not in existing_emails:
+            existing_users.append({
+                'email': email,
+                'name': name,
+                'source': 'api',
+                'added_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'department': '',
+                'location': '',
+                'job_role': '',
+                'tracked': False,
+            })
+            new_users_added += 1
 
-        return new_users_added
-    except Exception as e:
-        logger.error(f"Error syncing users from API: {e}")
-        return 0
+    # Save updated users list
+    if new_users_added > 0:
+        users_data['users'] = existing_users
+        if not save_json_file(USERS_FILE, users_data):
+            raise RuntimeError('could not persist the synced users to the database')
+        logger.info(f"Synced {new_users_added} new (untracked) users from API")
+
+    return new_users_added
 
 @app.route('/favicon.ico')
 def favicon():
@@ -521,13 +533,22 @@ def settings():
 @app.route('/api/settings/users', methods=['GET'])
 @admin_required
 def get_users():
-    """Get all users (synced with API data)"""
-    # Sync users from API first
-    sync_users_from_api()
-    
-    # Return all users
-    users_data = load_json_file(USERS_FILE, {'users': []})
-    return jsonify(users_data.get('users', []))
+    """Get all users, after folding in anyone the API has seen but we haven't.
+
+    The sync's outcome rides back on the X-Sync-Added header so the UI can report
+    what actually happened, and a failure is a 500 carrying the reason — never a
+    200 with an empty list, which reads to the user as "the API has no users".
+    """
+    try:
+        added = sync_users_from_api()
+        users_data = load_json_file(USERS_FILE, {'users': []})
+    except Exception as e:
+        logger.exception("User sync from API failed")
+        return jsonify({'error': f'{type(e).__name__}: {e}'}), 500
+
+    response = jsonify(users_data.get('users', []))
+    response.headers['X-Sync-Added'] = str(added)
+    return response
 
 @app.route('/api/settings/users', methods=['POST'])
 @admin_required
@@ -1848,7 +1869,10 @@ def load_data():
     else:
         # Return cached data (should always be available after initialization)
         with _cache_lock:
-            if _data_cache is None:
+            # Empty (not just None) counts as no cache. A refresh that once got an
+            # empty array back would otherwise pin _data_cache to [] forever: it is
+            # not None, so we would keep serving nothing and never re-fetch.
+            if not _data_cache:
                 # Fallback: try to load from file if cache not initialized
                 data, timestamp = load_cache_from_file()
                 if data:

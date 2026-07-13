@@ -896,11 +896,21 @@
             }
         }
 
-        // Load users
+        // Load users. Never throws — returns {ok, added} or {ok: false, error} so the
+        // fire-and-forget callers stay safe and syncUsers() can report the outcome.
         async function loadUsers() {
+            const msgEl = document.getElementById('syncMessage');
             try {
                 const response = await fetch('/api/settings/users');
+                if (!response.ok) {
+                    let reason = `HTTP ${response.status}`;
+                    try { reason = (await response.json()).error || reason; } catch (e) { /* body not JSON */ }
+                    msgEl.innerHTML = `<span class="text-red-700 font-medium">Sync failed — ${h(reason)}</span>`;
+                    return { ok: false, error: reason };
+                }
+
                 users = await response.json();
+                const added = parseInt(response.headers.get('X-Sync-Added') || '0', 10);
                 applyUserFilters();
 
                 // Tracked = on the uploaded roster (the authentic user list).
@@ -908,12 +918,17 @@
                 const tracked = users.filter(u => u.tracked).length;
                 const untracked = users.length - tracked;
                 const profiled = users.filter(u => u.department || u.location || u.job_role).length;
-                document.getElementById('syncMessage').innerHTML =
+                msgEl.innerHTML =
                     `<span class="text-gray-600">Total: ${users.length} users — ` +
                     `<strong class="text-green-700">${tracked} tracked</strong> (${profiled} with profile), ` +
-                    `<strong class="text-amber-700">${untracked} untracked</strong></span>`;
+                    `<strong class="text-amber-700">${untracked} untracked</strong>` +
+                    (added ? ` — <strong class="text-blue-700">${added} newly synced from API</strong>` : '') +
+                    `</span>`;
+                return { ok: true, added };
             } catch (error) {
                 console.error('Error loading users:', error);
+                msgEl.innerHTML = `<span class="text-red-700 font-medium">Sync failed — ${h(error.message)}</span>`;
+                return { ok: false, error: error.message };
             }
         }
 
@@ -926,22 +941,15 @@
             icon.classList.add('refresh-spinning');
             label.textContent = 'Syncing...';
 
-            try {
-                await loadUsers();
-                icon.classList.remove('refresh-spinning');
-                label.textContent = 'Synced!';
-                setTimeout(() => {
-                    btn.disabled = false;
-                    label.textContent = 'Sync from API';
-                }, 2000);
-            } catch (error) {
-                icon.classList.remove('refresh-spinning');
-                label.textContent = 'Error';
-                setTimeout(() => {
-                    btn.disabled = false;
-                    label.textContent = 'Sync from API';
-                }, 2000);
-            }
+            // "Synced!" used to show whenever the request returned 200, even when the
+            // sync had silently failed and added nothing. Report the real result.
+            const result = await loadUsers();
+            icon.classList.remove('refresh-spinning');
+            label.textContent = result.ok ? 'Synced!' : 'Failed';
+            setTimeout(() => {
+                btn.disabled = false;
+                label.textContent = 'Sync from API';
+            }, 2000);
         }
 
         // Render users list
