@@ -53,7 +53,7 @@ A Flask-based internal dashboard for tracking **Tata Tomorrow University (TTU)**
 | Secrets | `python-dotenv` → `.env` (gitignored) |
 | Concurrency | Python `threading` + `concurrent.futures.ThreadPoolExecutor` |
 
-> **Storage note:** As of v1.3 the app reads/writes users, course assignments, and the API cache through `db.py` (SQLite at `data/app.db`). `db.init_db()` runs at import time in `app.py`, creating the DB + tables on first boot and, only when the DB file is brand-new, bootstrapping it once from the legacy `data/*.json` files. After that the JSON files are ignored. The legacy Tailwind build (`tailwind.min.css`, Node tooling) is no longer used — styling is the committed `static/css/modern.css`.
+> **Storage note:** As of v1.3 the app reads/writes users, course assignments, and the API cache through `db.py` (SQLite at `data/app.db`). `db.init_db()` runs at import time in `app.py`, creating the DB + tables on first boot and, only when the DB file is brand-new, bootstrapping it once from the legacy `data/*.json` files. After that the JSON files are ignored. Styling is served entirely from committed files in `static/css/` — the compiled `tailwind.min.css` plus the hand-written `modern.css`. There is no CSS build step in deployment; only the Node tooling that *regenerates* `tailwind.min.css` is legacy.
 
 ### SQLite Schema (`data/app.db`)
 
@@ -102,16 +102,21 @@ the new code over the existing `app.db`.**
 │   ├── login.html                  # Login page
 │   ├── settings.html               # Admin settings page
 │   └── assignments.html            # Assignments management page
-├── static/
-│   ├── css/modern.css              # ★ Active hand-written stylesheet (committed)
-│   ├── css/input.css               # Legacy Tailwind source (unused)
-│   ├── css/tailwind.min.css        # Legacy compiled Tailwind (unused, safe to ignore)
-│   ├── fonts/Oswald/               # Local Oswald font (self-hosted, satisfies CSP)
-│   └── js/echarts.min.js
+├── static/                         # ★ Copy this folder whole — every file below is served
+│   ├── css/tailwind.min.css        # ★ Compiled Tailwind utilities — REQUIRED, all 4 templates link it
+│   ├── css/modern.css              # ★ Hand-written design system (committed)
+│   ├── css/login.css               # ★ Per-page stylesheet
+│   ├── css/settings.css            # ★ Per-page stylesheet
+│   ├── css/assignments.css         # ★ Per-page stylesheet
+│   ├── css/input.css               # Tailwind *source* — build-time only, unused at runtime
+│   ├── fonts/Oswald/               # ★ Local Oswald font (self-hosted, satisfies CSP)
+│   └── js/echarts.min.js           # ★ Charting library (self-hosted)
 └── Project_Structure.md            # This file
 ```
 
-> **★ marks what production actually uses.** `data/app.db` is the live store; the `data/*.json` files are only the one-time migration seed (kept as backups). `static/css/modern.css` is the active stylesheet; `input.css`/`tailwind.min.css` and the Node build tooling (`package.json`, `tailwind.config.js`, `node_modules/`) are legacy and not needed to deploy. Deployment needs only Python 3.11 + the `requirements.txt` deps + `waitress`.
+> **★ marks what production actually uses.** `data/app.db` is the live store; the `data/*.json` files are only the one-time migration seed.
+>
+> **On Tailwind:** `tailwind.min.css` is **compiled output and is required at runtime** — every template links it (see SEC-09 in [§15](#15-security-audit), which was *resolved* by shipping this file instead of the CDN). What is legacy is the **build tooling** that regenerates it: `package.json`, `package-lock.json`, `tailwind.config.js`, `static/css/input.css`, `node_modules/`. Never deploy the tooling; always deploy the compiled CSS. Deployment needs only Python 3.11 + the `requirements.txt` deps + a WSGI server (gunicorn on Linux, waitress on Windows).
 
 ---
 
@@ -971,51 +976,124 @@ After manual refresh completes:
 
 ## 11. Deployment
 
-### Fresh Server Deployment (stepwise)
+The app needs **only Python 3.11** — no database server, no Node, no build step. SQLite is stdlib; all CSS/JS/fonts are committed and served locally.
 
-The app needs **only Python 3.11** — no database server, no Node. SQLite is stdlib; CSS/fonts are committed.
+### What to copy, and what to leave behind
 
-#### Do I need to upload the `.json` files?
+#### ✅ Copy — the app will not run without these
 
-**No.** SQLite (`data/app.db`) is the source of truth. Pick **one** of:
+| Path | Why |
+|------|-----|
+| `app.py`, `db.py`, `email_service.py`, `assignment_analytics.py` | The application |
+| `requirements.txt` | Dependency list |
+| `templates/` | **All** of it — Jinja templates |
+| `static/` | **All** of it — see the CSS warning below |
+| `scripts/` | Optional; one-off seeding utilities |
+| `Response Sample.json` | **Only** if you might set `USE_LOCAL_DATA=true` |
+| `.env.example` | Convenient starting point for the real `.env` |
 
-| Goal | Copy into `data/` |
-|------|-------------------|
-| **Carry over existing users + assignments + cache** (recommended) | **`app.db` only.** The app uses it as-is. |
-| **Start empty, seed from current JSON** | The three JSONs (`users.json`, `course_assignments.json`, `api_cache.json`) and **no** `app.db`. First boot bootstraps them into a new `app.db`, then ignores them. |
+> ⚠️ **Copy the whole `static/` folder.** Every template links **`css/tailwind.min.css`** *and* `css/modern.css`, plus a page-specific sheet (`login.css`, `settings.css`, `assignments.css`), the Oswald fonts, and `js/echarts.min.js`. `tailwind.min.css` is **not** legacy — dropping it renders the app completely unstyled. (`css/input.css` is the Tailwind *source*; harmless to include, unused at runtime.)
 
-> ⚠️ If `app.db` exists, the JSON files are **ignored entirely** (no merge). Never copy `app.db-wal` / `app.db-shm` (transient SQLite sidecars) or `*.backup*.json`.
+#### ❌ Do NOT copy
 
-#### Step 1 — Install Python 3.11 on the server. (Nothing else.)
+| Path | Why |
+|------|-----|
+| `.env` | Secrets. **Recreate on the server** — see Step 3 |
+| `venv/` | Rebuild on the server; a venv is not portable across machines/OSes |
+| `__pycache__/` | Stale bytecode |
+| `package.json`, `package-lock.json`, `tailwind.config.js`, `node_modules/` | Tailwind **build** tooling. Only needed to *regenerate* `tailwind.min.css`. Never needed at runtime |
+| `logs/` | **Auto-created** — see below |
+| `data/` | **Auto-created** — see the data section below. Copy contents only deliberately |
+| `data/app.db-wal`, `data/app.db-shm` | Transient SQLite sidecars. **Copying these corrupts the database** |
+| `data/*.backup*.json` | Old migration backups |
+| `.kiro/`, `.vscode/` | Editor/dev config |
+| `deploy_setup.ps1`, `deploy_simple.bat` | Windows-only launchers with hardcoded paths; useless on Linux |
 
-#### Step 2 — Copy the app to the server
-**Required:** `app.py`, `db.py`, `email_service.py`, `assignment_analytics.py`, `requirements.txt`, `scripts/`, `templates/`, `static/` (css/modern.css + fonts/Oswald/** + js/echarts.min.js), and `Response Sample.json` (only if you might use `USE_LOCAL_DATA=true`).
-**Data:** exactly one option from the table above.
-**Do NOT copy:** `.env` (rebuild it), `venv/`, `node_modules/`, `__pycache__/`, `logs/`, `*.backup*.json`, `app.db-wal`, `app.db-shm`, legacy `tailwind.min.css`.
+#### Folders you never create by hand
 
-#### Step 3 — Create `.env` on the server (the main thing you change)
+Both are created at import time, so a completely empty deployment directory is fine:
+
+* **`logs/`** — `app.py` calls `os.makedirs('logs', exist_ok=True)`, then a `RotatingFileHandler` writes `logs/app.log` (1 MB × 5 files).
+* **`data/`** — `app.py` calls `os.makedirs('data', exist_ok=True)`, and `db._connect()` does the same for the DB's parent directory.
+
+### Data: choose one of three, deliberately
+
+`data/app.db` (SQLite) is the **single source of truth**. The JSON files are only a one-time bootstrap seed.
+
+| Goal | Put in `data/` | Result |
+|------|----------------|--------|
+| **Truly fresh start** | **Nothing.** Leave `data/` empty or absent | New empty `app.db`. First boot has no cache, so it fetches from the API (**can take 3+ minutes**); users then populate as *untracked* on the first Settings → Sync. **Assignments start empty.** |
+| **Carry everything over** | **`app.db` only** | Users, assignments, cache, and completion history preserved as-is |
+| **Seed from JSON** | `users.json`, `course_assignments.json`, `api_cache.json` — and **no `app.db`** | First boot imports them into a new `app.db`, then ignores the JSONs forever |
+
+> ⚠️ **`db.init_db()` only bootstraps when `app.db` does not exist** (`is_new = not os.path.exists(DB_PATH)`). If the file is present — *even if it is corrupt* — it is reused and the JSONs are ignored entirely. To force a rebuild you must **delete `app.db` from disk**; restarting the service is not enough.
+
+> ⚠️ **Gotcha: `data/*.json` are tracked in git.** They were committed before `.gitignore` listed them, and `.gitignore` does not untrack existing files. So `git clone` on a new server **brings stale `users.json` / `course_assignments.json` / `api_cache.json` with it** and you silently get the "Seed from JSON" behaviour. If you want a truly fresh start, `rm data/*.json` after cloning.
+
+#### Carrying `app.db` to a new server — safely
+
+**Never `cp`/`scp` a live `app.db`.** SQLite runs in WAL mode (`PRAGMA journal_mode=WAL`), so a plain copy of a database being written to is a torn file, and copying the `-wal`/`-shm` sidecars alongside a mismatched `app.db` makes SQLite replay a foreign write-ahead log — both produce `database disk image is malformed`. Use SQLite's own consistent snapshot, which is safe on a running database:
+
+```bash
+sqlite3 data/app.db ".backup /tmp/app-snapshot.db"
+scp /tmp/app-snapshot.db newserver:/path/to/Project/data/app.db   # no -wal, no -shm
+```
+
+#### Backups
+
+Same rule. A cron entry is strongly recommended, since `app.db` is now the only copy of your assignments and completion history:
+
+```bash
+0 2 * * * sqlite3 /home/pankaj/Project_6/data/app.db ".backup /home/pankaj/db_backup/app-$(date +\%F).db"
+```
+
+### Step 1 — Install Python 3.11. (Nothing else.)
+
+### Step 2 — Copy the app across, per the tables above.
+
+### Step 3 — Create `.env` on the server (the main thing you change)
 ```bash
 cp .env.example .env    # then fill in real values
 ```
-Required (app `KeyError`s and refuses to boot without them): `SECRET_KEY`, **`SUPERADMIN_PASSWORD`** (new), `ADMIN_PASSWORD`, `USER_PASSWORD`, `TCS_ION_API_URL`. Set `USE_LOCAL_DATA=false` and (behind TLS) `HTTPS_ONLY=true`. See [§12](#12-configuration-reference) for the full list.
+Required (the app `KeyError`s and refuses to boot without them): `SECRET_KEY`, `SUPERADMIN_PASSWORD`, `ADMIN_PASSWORD`, `USER_PASSWORD`, `TCS_ION_API_URL`. Set `USE_LOCAL_DATA=false` and (behind TLS) `HTTPS_ONLY=true`. See [§12](#12-configuration-reference) for the full list.
 
-#### Step 4 — Install deps and run
+### Step 4 — Install deps and run
+
+No migration command exists or is needed — `app.py` calls `db.init_db()` at import, which creates `data/app.db` and its tables (or opens the one you copied).
+
+**Linux (systemd + gunicorn) — the production setup:**
+```bash
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
+venv/bin/pip install gunicorn
+venv/bin/gunicorn --workers 3 --bind 0.0.0.0:5006 app:app
+```
+
+> ⚠️ **File ownership.** Run the first launch (and any `db.init_db()` by hand) as the **same user the service runs as** — the `User=` in the unit file. If `app.db` or `data/` ends up root-owned while gunicorn runs as an unprivileged user, every write fails with `attempt to write a readonly database`. SQLite needs write permission on the **directory** too, not just the file, because it creates the `-wal`/`-shm` sidecars there.
+
+**Windows (Waitress, port 8888):**
 ```powershell
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
 pip install waitress
-# Production (Waitress, port 8888):
 python -c "from waitress import serve; from app import app; serve(app, host='0.0.0.0', port=8888, threads=4)"
 ```
-No migration command is needed — `app.py` calls `db.init_db()` at import, which creates `data/app.db` + tables (or uses the one you copied) automatically.
 
-#### Step 5 — Optional hardening / seeding
-- Run `deploy_setup.ps1` **as Administrator** to apply `icacls` ACLs on `data/` and `.env` (SEC-22).
+### Step 5 — Optional hardening / seeding
+- On Windows, run `deploy_setup.ps1` **as Administrator** to apply `icacls` ACLs on `data/` and `.env` (SEC-22).
 - `scripts/seed_assignments_from_api.py` pre-populates assignments from the API on an empty setup (optional).
 
-#### Step 6 — Verify
-Open `http://<server>:8888/login`, log in, and confirm the dashboard, settings, and assignments pages render **styled** (proves `modern.css` + Oswald fonts copied). Confirm `data/app.db` and `logs/app.log` exist.
+### Step 6 — Verify
+1. Open `/login` and log in.
+2. Confirm pages render **styled** — this proves `static/` (including `tailwind.min.css`) copied correctly.
+3. Confirm `data/app.db` and `logs/app.log` exist, and that `app.db` is owned by the service user.
+4. On a fresh DB, the first API fetch takes minutes. Until it lands, the dashboard is empty and Settings → Sync finds no users — **this is expected**. Reload the page once the fetch completes; nothing pushes to an already-open page.
+5. Sanity-check the database:
+   ```bash
+   venv/bin/python -c "import sqlite3, db; print(sqlite3.connect(db.DB_PATH).execute('PRAGMA integrity_check').fetchone())"
+   ```
+   Anything other than `('ok',)` means a corrupt `app.db` — delete `app.db`, `app.db-wal`, `app.db-shm` and let it rebuild.
 
 ### Quick Start (Development)
 
@@ -1030,7 +1108,9 @@ The app **will not start** if required env vars are missing — `SECRET_KEY`, `S
 
 ### Styling (no build step)
 
-Styling is the committed, hand-written `static/css/modern.css` — there is **no CSS build step** and **no Node dependency** in deployment. The old Tailwind tooling (`package.json`, `tailwind.config.js`, `input.css`, `tailwind.min.css`, `node_modules/`) is legacy and unused; ignore it when deploying.
+There is **no CSS build step** and **no Node dependency in deployment**. The stylesheets are committed and served from `static/css/`: `tailwind.min.css` (utility classes — **required**, every template links it), `modern.css` (the hand-written design system), and the per-page `login.css` / `settings.css` / `assignments.css`.
+
+The Node tooling (`package.json`, `package-lock.json`, `tailwind.config.js`, `static/css/input.css`, `node_modules/`) exists **only to regenerate `tailwind.min.css`** during development. Never copy it to a server — but do not confuse it with the generated `tailwind.min.css`, which is required at runtime.
 
 ### Windows (Production)
 
@@ -1198,7 +1278,9 @@ All authentication events are logged to **both the console and a persistent file
 | App won't start (`KeyError`) | Missing required env var | Ensure `.env` exists with all required keys ([§12](#12-configuration-reference)) |
 | `403 CSRF validation failed` on actions | Stale page / missing token | Hard-refresh the page so a fresh `csrf_token` loads |
 | `Refused to execute script … MIME type ('text/plain') is not executable` + `echarts is not defined` | **Windows registry has `HKCR\.js` set to `text/plain`** — see below | Already fixed in code; if it recurs, confirm the `mimetypes.add_type(...)` block still runs at import in `app.py` |
-| UI unstyled / charts missing | Same MIME-type cause as above (CSS is refused under `style-src 'self'`), **or** a stale cached copy | Hard-refresh (Ctrl+F5). *Not* a Tailwind build problem — there is no CSS build step ([§11](#styling-no-build-step)) |
+| UI unstyled / charts missing | **`static/` not copied in full** (most common on a new server — `tailwind.min.css` is required, not legacy), the MIME-type cause above (CSS refused under `style-src 'self'`), or a stale cache | Confirm every file under `static/css/` and `static/fonts/` is on the server; check the browser Network tab for 404s; hard-refresh (Ctrl+F5). *Not* a Tailwind build problem — there is no CSS build step ([§11](#styling-no-build-step)) |
+| `database disk image is malformed` on boot or on Sync | Corrupt `data/app.db` — usually a `cp`/`scp` of a live DB, or stale `app.db-wal`/`app.db-shm` sidecars copied alongside a different `app.db` | Stop the service, **delete `app.db`, `app.db-wal`, `app.db-shm`** (restarting alone does nothing — `init_db()` reuses any existing file), let it rebuild. Always snapshot with `sqlite3 … ".backup"`, never `cp` ([§11](#11-deployment)) |
+| Sync from API says it worked but no users appear | Almost always a failing DB write — often `app.db` owned by root while the service runs as an unprivileged user | Check `ls -l data/app.db` against the unit's `User=`; `chown` the whole `data/` directory. The UI now surfaces the real error in red |
 | Port already in use | Another process on 5000 | Use `netstat -ano \| findstr :5000` to identify |
 | Permission error on data/ | Missing write permission | Run as Administrator or fix folder ACL |
 

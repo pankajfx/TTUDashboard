@@ -3,8 +3,10 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+venv/
 
-# Node (dev-only Tailwind build tooling, not used in production)
+# Node — Tailwind BUILD tooling only. Note that the compiled output it produces,
+# static/css/tailwind.min.css, IS required at runtime and stays tracked.
 node_modules/
 package-lock.json
 package.json
@@ -12,17 +14,22 @@ package.json
 # Environment
 .env
 
-# Logs
+# Logs — auto-created by app.py (os.makedirs('logs', exist_ok=True))
 logs/
 
-# Data / runtime
-data/api_cache.json
-data/course_assignments.json
-data/users.json
-data/course_assignments.backup.*.json
-# SQLite is now the source of truth (see db.py); the JSON files above remain as
-# one-time migration backups. The live DB + its WAL sidecars are runtime state.
-data/app.db
-data/app.db-wal
-data/app.db-shm
-scripts/logs.txt
+# Data / runtime — nothing here is versioned.
+#   * SQLite (data/app.db) is the source of truth; it and its WAL sidecars are
+#     runtime state, and a copied -wal/-shm pair corrupts the DB.
+#   * The legacy *.json migration seeds contain real user PII (names, emails).
+#   * A tracked seed also makes `git clone` silently bootstrap a fresh app.db from
+#     stale data, which is never what a new deployment wants.
+# The directory itself is auto-created by app.py, so nothing needs to be committed.
+data/
+
+# Editor / IDE
+.vscode/
+.kiro/
+
+# Windows-only launchers — hardcoded paths; production is Linux + systemd + gunicorn
+deploy_setup.ps1
+deploy_simple.bat
