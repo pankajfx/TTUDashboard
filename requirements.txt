@@ -1,6 +1,11 @@
+# --- Runtime (required in production) ---
 Flask==3.0.0
+Werkzeug==3.0.6          # used directly in app.py; pin so it isn't just a transitive Flask dep
+waitress==3.0.0          # production WSGI server (Windows-friendly); entrypoint is serve.py
 requests==2.31.0
-pytest==7.4.3
-hypothesis==6.92.1
 openpyxl==3.1.2
 python-dotenv==1.0.1
+
+# --- Test / dev only (safe to skip in production) ---
+pytest==7.4.3
+hypothesis==6.92.1

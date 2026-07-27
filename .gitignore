@@ -25,3 +25,4 @@ data/course_assignments.backup.*.json
 data/app.db
 data/app.db-wal
 data/app.db-shm
+scripts/logs.txt

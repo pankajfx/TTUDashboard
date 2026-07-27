@@ -317,6 +317,11 @@
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
                     <h2 class="text-xl font-bold text-gray-900">Active Assignments</h2>
                     <div class="flex items-center gap-2">
+                        <button type="button" onclick="openEmailLog()"
+                            class="btn-subtle"
+                            title="Every email dispatch and the recipients it failed to reach">
+                            Email delivery log
+                        </button>
                         <label for="assignmentFyFilter" class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Financial Year</label>
                         <select id="assignmentFyFilter" onchange="onAssignmentFyChange(this.value)"
                             class="text-sm font-semibold text-gray-800 bg-white border-2 border-indigo-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 shadow-sm cursor-pointer">
@@ -598,12 +603,33 @@
                 <span id="emailProgressCount">0 / 0 sent</span>
                 <span id="emailProgressPct">0%</span>
             </div>
-            <div id="emailProgressFailed" class="hidden text-xs text-red-500"></div>
+            <!-- Populated with the exact undelivered addresses + the server's reason
+                 for each. The same list is stored server-side (email_jobs table) and
+                 written to logs/app.log, so closing this modal does not lose it. -->
+            <div id="emailProgressFailed" class="hidden"></div>
             <button id="emailProgressDoneBtn"
                 class="hidden btn-primary w-full py-2 px-4 text-white font-semibold rounded-lg mt-1"
                 onclick="closeEmailProgressModal()">
                 Done
             </button>
+        </div>
+    </div>
+
+    <!-- Email Delivery Log — the durable record of who was and wasn't reached.
+         Backed by the email_jobs table, so it survives restarts and log rotation. -->
+    <div id="emailLogModal" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[65] p-4">
+        <div class="card max-w-2xl w-full p-6 flex flex-col gap-3" style="max-height:85vh">
+            <div class="flex items-center justify-between gap-3">
+                <h2 class="text-lg font-bold text-gray-900">Email Delivery Log</h2>
+                <button type="button" class="btn-subtle" onclick="closeEmailLog()">Close</button>
+            </div>
+            <label class="flex items-center gap-2 text-xs text-gray-600">
+                <input type="checkbox" id="emailLogFailedOnly" checked onchange="loadEmailLog()">
+                Only show dispatches that lost messages
+            </label>
+            <div id="emailLogBody" class="mail-log-list overflow-y-auto">
+                <p class="text-sm text-gray-500 py-4 text-center">Loading...</p>
+            </div>
         </div>
     </div>
 
@@ -767,6 +793,7 @@
             count.textContent   = `0 / ${total} sent`;
             pct.textContent     = '0%';
             failed.classList.add('hidden');
+            failed.innerHTML    = '';
             doneBtn.classList.add('hidden');
             spinner.style.display = 'block';
             modal.classList.remove('hidden');
@@ -777,8 +804,11 @@
                 try {
                     const res  = await fetch(`/api/email-job/${jobId}`);
                     if (!res.ok) {
-                        // Job expired or not found — treat as done
-                        _finishEmailJob(bar, count, pct, title, spinner, doneBtn, failed, total, total, 0, doneMsg);
+                        // Job genuinely unknown — the server falls back to the
+                        // persisted record before 404ing, so this really is a dead
+                        // end. Say so rather than implying everything was delivered.
+                        _finishEmailJob(bar, count, pct, title, spinner, doneBtn, failed,
+                                        total, total, 0, doneMsg, 'unknown');
                         return;
                     }
                     const job = await res.json();
@@ -791,8 +821,10 @@
                     count.textContent = `${done} / ${tot} sent`;
                     pct.textContent   = `${pctVal}%`;
 
-                    if (job.status === 'completed') {
-                        _finishEmailJob(bar, count, pct, title, spinner, doneBtn, failed, done, tot, job.failed, doneMsg);
+                    if (job.status === 'completed' || job.status === 'aborted') {
+                        _finishEmailJob(bar, count, pct, title, spinner, doneBtn, failed,
+                                        done, tot, job.failed, doneMsg, job.status,
+                                        job.failures || []);
                     } else {
                         _emailPollTimer = setTimeout(_poll, POLL_INTERVAL);
                     }
@@ -805,18 +837,210 @@
             _emailPollTimer = setTimeout(_poll, POLL_INTERVAL);
         }
 
-        function _finishEmailJob(bar, count, pct, title, spinner, doneBtn, failed, done, total, failedCount, doneMsg) {
+        // What each failure category means for the admin, and whether re-sending the
+        // same address could work. Only a bad address needs human correction first.
+        const FAILURE_CATEGORIES = {
+            address:     { label: 'bad address', resendable: false },
+            rate:        { label: 'rate limit',  resendable: true  },
+            concurrency: { label: 'server busy', resendable: true  },
+            quota:       { label: 'quota',       resendable: true  },
+            auth:        { label: 'login',       resendable: true  },
+            transient:   { label: 'temporary',   resendable: true  },
+        };
+
+        function _failureMeta(f) {
+            const known = FAILURE_CATEGORIES[f.category];
+            if (known) return known;
+            // Rows written before categories existed.
+            return f.permanent
+                ? FAILURE_CATEGORIES.address
+                : FAILURE_CATEGORIES.transient;
+        }
+
+        function _failureRows(failures) {
+            return failures.map(f => {
+                const meta = _failureMeta(f);
+                return `
+                <div class="mail-fail-row">
+                    <span class="mail-fail-addr">${h(f.email || '(blank address)')}</span>
+                    <span class="mail-fail-why">
+                        <span class="mail-fail-tag ${meta.resendable ? 'is-transient' : 'is-permanent'}">${h(meta.label)}</span>
+                        ${h(f.reason || 'Unknown error')}${f.code ? ` (${h(f.code)})` : ''}
+                    </span>
+                </div>`;
+            }).join('');
+        }
+
+        /**
+         * Render the undelivered recipients so the admin can act on them without
+         * digging through server logs.
+         */
+        function _renderEmailFailures(container, failures) {
+            const needFixing = failures.filter(f => !_failureMeta(f).resendable).length;
+            const note = needFixing === failures.length
+                ? 'These addresses were rejected by the mail server — check they are correct.'
+                : (needFixing === 0
+                    ? 'These can be re-sent as-is from the Email delivery log.'
+                    : `${needFixing} address(es) need correcting; the rest can be re-sent as-is.`);
+
+            container.innerHTML = `
+                <div class="mail-fail">
+                    <div class="mail-fail-head">
+                        <span>${failures.length} could not be delivered</span>
+                        <button type="button" class="mail-fail-copy"
+                                onclick="_copyFailedEmails(this)">Copy addresses</button>
+                    </div>
+                    <div class="mail-fail-list">${_failureRows(failures)}</div>
+                    <div class="mail-fail-note">${h(note)} This list is also saved on the server.</div>
+                </div>`;
+            container.dataset.addresses = failures.map(f => f.email).filter(Boolean).join('\n');
+            container.classList.remove('hidden');
+        }
+
+        // ── Email Delivery Log ───────────────────────────────────────────────
+        // Answers "which users didn't get the mail?" after the progress modal is
+        // long gone. Reads the persisted email_jobs rows, not in-memory job state.
+        function openEmailLog() {
+            document.getElementById('emailLogModal').classList.remove('hidden');
+            loadEmailLog();
+        }
+
+        function closeEmailLog() {
+            document.getElementById('emailLogModal').classList.add('hidden');
+        }
+
+        async function loadEmailLog() {
+            const body = document.getElementById('emailLogBody');
+            const failedOnly = document.getElementById('emailLogFailedOnly').checked;
+            body.innerHTML = '<p class="text-sm text-gray-500 py-4 text-center">Loading...</p>';
+            try {
+                const res = await fetch(`/api/email-jobs?limit=50&failed_only=${failedOnly}`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const jobs = await res.json();
+                if (!jobs.length) {
+                    body.innerHTML = `<p class="text-sm text-gray-500 py-4 text-center">${
+                        failedOnly ? 'No dispatch has lost a message.' : 'No email dispatches recorded yet.'}</p>`;
+                    return;
+                }
+                body.innerHTML = jobs.map(_emailLogRow).join('');
+            } catch (err) {
+                body.innerHTML = `<p class="text-sm text-red-600 py-4 text-center">Could not load the log — ${h(err.message)}</p>`;
+            }
+        }
+
+        function _emailLogRow(job) {
+            const failures = job.failures || [];
+            const resendable = failures.filter(f => _failureMeta(f).resendable).length;
+            const when = (job.started_at || '').replace('T', ' ');
+            const addresses = failures.map(f => f.email).filter(Boolean).join('\n');
+
+            const detail = failures.length
+                ? `<div class="mail-fail-list">${_failureRows(failures)}</div>` : '';
+
+            return `
+                <div class="mail-log-item ${failures.length ? 'has-failures' : ''}" data-job="${h(job.job_id)}"
+                     data-addresses="${h(addresses)}">
+                    <div class="mail-log-top">
+                        <span class="mail-log-title">${h(job.course_name || '(no course)')} — ${h(job.kind || 'email')}</span>
+                        <span class="mail-log-meta">${h(when)}${job.triggered_by ? ' by ' + h(job.triggered_by) : ''}</span>
+                    </div>
+                    <div class="mail-log-counts">
+                        ${job.sent} sent${job.failed ? `, <b>${job.failed} undelivered</b>` : ''} of ${job.total}
+                        ${job.status === 'aborted' ? ' — dispatch aborted' : ''}
+                    </div>
+                    ${detail}
+                    ${failures.length ? `
+                    <div class="mail-log-actions">
+                        <button type="button" class="btn-subtle"
+                            onclick="_copyLogAddresses(this)">Copy addresses</button>
+                        ${resendable ? `
+                        <button type="button" class="btn-subtle"
+                            onclick="resendFailedEmails('${h(job.job_id)}', ${resendable})">
+                            Re-send to ${resendable} reachable
+                        </button>` : ''}
+                    </div>` : ''}
+                </div>`;
+        }
+
+        function _copyLogAddresses(btn) {
+            const addresses = btn.closest('.mail-log-item').dataset.addresses || '';
+            navigator.clipboard.writeText(addresses).then(() => {
+                const original = btn.textContent;
+                btn.textContent = 'Copied';
+                setTimeout(() => { btn.textContent = original; }, 1500);
+            }).catch(() => showNotification('Copy failed', 'Could not access the clipboard.', 'error'));
+        }
+
+        /**
+         * Re-dispatch a past job's transient failures. Permanent ones (bad or unknown
+         * address) are deliberately excluded server-side — they need the address
+         * fixed, not another attempt.
+         */
+        async function resendFailedEmails(jobId, count) {
+            if (!confirm(`Re-send the notification to ${count} recipient(s) that could not be reached?`)) return;
+            try {
+                // The global fetch wrapper adds the CSRF header for mutating methods.
+                const res = await fetch(`/api/email-jobs/${jobId}/resend`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    showNotification('Cannot re-send', data.detail || data.error || 'Unknown error', 'error');
+                    return;
+                }
+                closeEmailLog();
+                pollEmailJob(data.email_job_id, data.email_total,
+                             `Re-sent to ${data.email_total} recipient(s).`);
+            } catch (err) {
+                showNotification('Re-send failed', err.message, 'error');
+            }
+        }
+
+        function _copyFailedEmails(btn) {
+            const addresses = document.getElementById('emailProgressFailed').dataset.addresses || '';
+            navigator.clipboard.writeText(addresses).then(() => {
+                const original = btn.textContent;
+                btn.textContent = 'Copied';
+                setTimeout(() => { btn.textContent = original; }, 1500);
+            }).catch(() => showNotification('Copy failed', 'Could not access the clipboard.', 'error'));
+        }
+
+        function _finishEmailJob(bar, count, pct, title, spinner, doneBtn, failed, done, total,
+                                 failedCount, doneMsg, status, failures) {
             bar.style.width   = '100%';
-            count.textContent = `${done} / ${total} sent`;
+            count.textContent = `${done - failedCount} / ${total} sent`;
             pct.textContent   = '100%';
-            title.textContent = 'Notifications Sent!';
             spinner.style.display = 'none';
             doneBtn.classList.remove('hidden');
-            if (failedCount > 0) {
-                failed.textContent = `${failedCount} email(s) could not be delivered.`;
+
+            if (status === 'unknown') {
+                title.textContent = 'Dispatch status unavailable';
+                count.textContent = 'delivery not confirmed';
+                failed.innerHTML =
+                    '<div class="mail-fail"><div class="mail-fail-note">This job is no longer ' +
+                    'tracked, so delivery could not be confirmed. Check Email Delivery Log ' +
+                    'or logs/app.log for the outcome.</div></div>';
                 failed.classList.remove('hidden');
+            } else if (status === 'aborted') {
+                title.textContent = 'Dispatch stopped';
+                _renderEmailFailures(failed, failures || []);
+            } else if (failedCount > 0) {
+                title.textContent = 'Sent with errors';
+                _renderEmailFailures(failed, failures || []);
+            } else {
+                title.textContent = 'Notifications Sent!';
             }
-            if (doneMsg) showNotification('Emails Sent', doneMsg, 'success');
+
+            // A toast claiming success would contradict the panel above it.
+            if (doneMsg && status === 'completed' && failedCount === 0) {
+                showNotification('Emails Sent', doneMsg, 'success');
+            } else if (failedCount > 0) {
+                showNotification('Some emails failed',
+                    `${failedCount} of ${total} could not be delivered — see the list for details.`,
+                    'error');
+            }
             loadAssignments();
         }
 
@@ -2047,7 +2271,16 @@
 
                 const data = await response.json();
                 if (response.ok) {
-                    showNotification('Reminders Sent', `Sent: ${data.reminders_sent} | Failed: ${data.reminders_failed} | Already Completed: ${data.already_completed}`, 'success');
+                    // Reminders now dispatch as a background job — track it in the
+                    // same progress modal, which reports any undelivered recipients.
+                    if (data.email_job_id) {
+                        pollEmailJob(data.email_job_id, data.email_total,
+                            `Reminders sent. Already completed: ${data.already_completed}.`);
+                    } else {
+                        showNotification('No reminders needed',
+                            `Everyone assigned has already completed the course (${data.already_completed}).`,
+                            'info');
+                    }
                 } else {
                     showNotification('Error', 'Failed to send reminders: ' + (data.error || 'Unknown error'), 'error');
                 }

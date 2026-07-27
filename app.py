@@ -1,4 +1,5 @@
-from flask import Flask, render_template, jsonify, request, session, redirect, url_for
+from flask import (Flask, render_template, jsonify, request, session, redirect, url_for,
+                   has_request_context)
 import requests
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -14,7 +15,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from functools import wraps
 from email_service import (send_course_assignment_email, send_deadline_reminder_email,
-                           send_course_removal_email, send_course_completion_email)
+                           send_course_removal_email, send_course_completion_email,
+                           SmtpSession, SmtpConfigError, SendResult, CAT_AUTH, CAT_ADDRESS)
 import assignment_analytics as aa
 import db
 import openpyxl
@@ -35,13 +37,23 @@ mimetypes.add_type('image/svg+xml', '.svg')
 mimetypes.add_type('application/json', '.json')
 
 # Configure logging — console + persistent rotating file (audit trail).
-# Attach handlers directly to the root logger and clear any pre-existing ones
-# (e.g. email_service.py calls logging.basicConfig() at import time, which would
-# otherwise make our basicConfig a no-op and silently drop the file handler).
+# Attach handlers directly to the root logger and clear any pre-existing ones, so an
+# imported module that called logging.basicConfig() at import time cannot make ours a
+# no-op and silently drop the file handler.
+#
+# logs/app.log is the delivery record for every email the app sends (recipient +
+# outcome + the server's reason on failure), so the retention below is the window in
+# which an individual send can still be traced. Raise LOG_MAX_BYTES / LOG_BACKUPS if
+# you dispatch large batches — the defaults keep ~6 MB, which a few 200-recipient
+# runs can churn through.
 os.makedirs('logs', exist_ok=True)
 _log_format = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s')
 
-_file_handler = RotatingFileHandler('logs/app.log', maxBytes=1_000_000, backupCount=5, encoding='utf-8')
+_file_handler = RotatingFileHandler(
+    'logs/app.log',
+    maxBytes=int(os.environ.get('LOG_MAX_BYTES', 5_000_000)),
+    backupCount=int(os.environ.get('LOG_BACKUPS', 10)),
+    encoding='utf-8')
 _file_handler.setFormatter(_log_format)
 _file_handler.setLevel(logging.INFO)
 
@@ -781,25 +793,87 @@ def get_available_courses():
         return jsonify({'error': 'Failed to load courses'}), 500
 
 # ── Email Job Tracking ────────────────────────────────────────────────────────
-# Each job: {total, sent, failed, status: 'running'|'completed'}
+# Live job state driving the progress modal:
+#   {total, sent, failed, status: 'running'|'completed'|'aborted', failures: [...]}
+# It is in-memory and short-lived, so every job is also written to the email_jobs
+# table when it finishes (db.record_email_job) — that persisted row, not this dict,
+# is what answers "which recipients did we fail to reach?" a day later.
 _email_jobs: dict = {}
 _email_jobs_lock = threading.Lock()
 
-_EMAIL_WORKERS = 8   # parallel SMTP connections per job
-_JOB_TTL = 600       # seconds before a completed job is cleaned up
+# Office 365 SMTP AUTH client submission permits 3 concurrent connections per
+# mailbox. Running 8 (the previous value) meant most workers were refused under
+# load, which is what produced large batches of "failed" mails that were really
+# just throttled. One connection per worker is now reused for the whole batch.
+_EMAIL_WORKERS = max(1, int(os.environ.get('EMAIL_WORKERS', '3')))
+_JOB_TTL = 600       # seconds before a completed job is dropped from memory
+
+# Only one dispatch may be in flight at a time, process-wide. Capping workers per job
+# bounds one job's connections; this bounds the whole process. Without it, an admin
+# creating an assignment while the post-sync completion pass is running would open two
+# jobs' worth of connections at once and hit the same
+#   432 4.3.2 Concurrent connections limit exceeded
+# the old code hit. A second job simply queues (status 'queued') and runs at full
+# speed once the first finishes — nothing is dropped.
+_email_dispatch_lock = threading.Lock()
 
 
-def _create_job(total: int) -> str:
+def _create_job(total: int, kind: str = 'assignment', course_name: str = '',
+                assignment_id=None) -> str:
     job_id = str(uuid.uuid4())
     with _email_jobs_lock:
-        _email_jobs[job_id] = {'total': total, 'sent': 0, 'failed': 0, 'status': 'running'}
+        _email_jobs[job_id] = {
+            'job_id': job_id,
+            'kind': kind,
+            'course_name': course_name,
+            'assignment_id': assignment_id,
+            'total': total,
+            'sent': 0,
+            'failed': 0,
+            'status': 'queued',
+            'failures': [],
+            'started_at': datetime.now().isoformat(timespec='seconds'),
+            'finished_at': None,
+            'triggered_by': session.get('username') if has_request_context() else None,
+        }
     return job_id
 
 
-def _mark_job_done(job_id: str):
+def _finish_job(job_id: str, status: str = 'completed'):
+    """Close a job out: log the full outcome, persist it, then expire it from memory.
+
+    The status flip to 'completed' happens last, after the row is durable. Clients
+    poll on status, so doing it in this order means a client that sees 'completed'
+    can always find the persisted record.
+    """
+    with _email_jobs_lock:
+        job = _email_jobs.get(job_id)
+        if not job:
+            return
+        job['finished_at'] = datetime.now().isoformat(timespec='seconds')
+        snapshot = {**job, 'status': status, 'failures': list(job['failures'])}
+
+    logger.info(f"Email job {job_id} ({snapshot['kind']} / {snapshot['course_name'] or '-'}) "
+                f"{status}: {snapshot['sent']} sent, {snapshot['failed']} failed "
+                f"of {snapshot['total']}")
+    if snapshot['failures']:
+        # The whole point of the exercise: the undelivered addresses land in the log
+        # in one line, with the server's own reason next to each of them.
+        detail = '; '.join(
+            f"{f['email']} [{'permanent' if f['permanent'] else 'transient'}"
+            f"{('/' + str(f['code'])) if f.get('code') else ''}: {f['reason']}]"
+            for f in snapshot['failures'])
+        logger.error(f"Email job {job_id}: {len(snapshot['failures'])} UNDELIVERED — {detail}")
+
+    try:
+        db.record_email_job(snapshot)
+    except Exception as e:
+        logger.error(f"Email job {job_id}: could not persist result: {e}")
+
     with _email_jobs_lock:
         if job_id in _email_jobs:
-            _email_jobs[job_id]['status'] = 'completed'
+            _email_jobs[job_id]['status'] = status
+
     def _cleanup():
         time.sleep(_JOB_TTL)
         with _email_jobs_lock:
@@ -807,50 +881,120 @@ def _mark_job_done(job_id: str):
     threading.Thread(target=_cleanup, daemon=True).start()
 
 
-def _run_email_job(job_id, emails, send_fn):
-    """Execute a list of (email, name, ...) send calls in parallel and track progress."""
+def _run_email_job(job_id, tasks, send_fn):
+    """Send a batch in parallel, reusing one SMTP connection per worker thread.
+
+    ``send_fn(task, session)`` returns a SendResult. Retries live inside
+    email_service.send_email, so anything that arrives here as a failure has already
+    exhausted its retries or was permanent (bad address, mailbox refused).
+
+    Serialised on _email_dispatch_lock so the process never holds more than
+    EMAIL_WORKERS SMTP connections, however many dispatches are requested at once.
+
+    A credentials rejection aborts the batch rather than repeating it 197 times:
+    every message would fail identically and the repeated AUTH attempts are what
+    gets a mailbox locked out.
+    """
+    thread_state = threading.local()
+    sessions = []
+    sessions_lock = threading.Lock()
+    abort = threading.Event()
+    abort_reason = {}
+
+    def _session():
+        sess = getattr(thread_state, 'session', None)
+        if sess is None:
+            sess = SmtpSession()
+            thread_state.session = sess
+            with sessions_lock:
+                sessions.append(sess)
+        return sess
+
     def _one(task):
+        address = task[0] if isinstance(task, (tuple, list)) else task
+        if abort.is_set():
+            return SendResult(False, address, abort_reason.get('why', 'Batch aborted'),
+                              attempts=0, permanent=True, category=CAT_AUTH)
         try:
-            return send_fn(task)
+            return send_fn(task, _session())
+        except SmtpConfigError as e:
+            abort_reason['why'] = str(e)
+            abort.set()
+            logger.error(f"Email job {job_id}: ABORTING batch — {e}")
+            return SendResult(False, address, str(e), attempts=0, permanent=True,
+                              category=CAT_AUTH)
         except Exception as e:
-            logger.error(f"Email job {job_id}: error: {e}")
-            return False
+            logger.exception(f"Email job {job_id}: unexpected error sending to {address}")
+            return SendResult(False, address, f'{type(e).__name__}: {e}')
 
-    with ThreadPoolExecutor(max_workers=_EMAIL_WORKERS) as pool:
-        futures = {pool.submit(_one, task): task for task in emails}
-        for future in as_completed(futures):
-            ok = future.result()
-            with _email_jobs_lock:
-                if job_id in _email_jobs:
-                    if ok:
-                        _email_jobs[job_id]['sent'] += 1
-                    else:
-                        _email_jobs[job_id]['failed'] += 1
-    _mark_job_done(job_id)
+    with _email_dispatch_lock:
+        with _email_jobs_lock:
+            if job_id in _email_jobs:
+                _email_jobs[job_id]['status'] = 'running'
+        try:
+            with ThreadPoolExecutor(max_workers=_EMAIL_WORKERS) as pool:
+                futures = [pool.submit(_one, task) for task in tasks]
+                for future in as_completed(futures):
+                    result = future.result()
+                    with _email_jobs_lock:
+                        job = _email_jobs.get(job_id)
+                        if not job:
+                            continue
+                        if result:
+                            job['sent'] += 1
+                        else:
+                            job['failed'] += 1
+                            job['failures'].append(result.as_dict())
+        finally:
+            for sess in sessions:
+                try:
+                    sess.close()
+                except Exception:
+                    pass
+            _finish_job(job_id, 'aborted' if abort.is_set() else 'completed')
 
 
-def _dispatch_assignment_emails(emails, course_name, deadline, email_to_name) -> str:
+def _dispatch_assignment_emails(emails, course_name, deadline, email_to_name,
+                                assignment_id=None) -> str:
     """Start a background job to send assignment notification emails. Returns job_id."""
     tasks = [(email, email_to_name.get(email, email.split('@')[0])) for email in emails]
-    job_id = _create_job(len(tasks))
+    job_id = _create_job(len(tasks), 'assignment', course_name, assignment_id)
 
-    def _send(task):
+    def _send(task, smtp_session):
         user_email, user_name = task
-        return send_course_assignment_email(user_email, user_name, course_name, deadline)
+        return send_course_assignment_email(user_email, user_name, course_name, deadline,
+                                            session=smtp_session)
 
     t = threading.Thread(target=_run_email_job, args=(job_id, tasks, _send), daemon=True)
     t.start()
     return job_id
 
 
-def _dispatch_removal_emails(emails, course_name, email_to_name) -> str:
+def _dispatch_removal_emails(emails, course_name, email_to_name, assignment_id=None) -> str:
     """Start a background job to send removal notification emails. Returns job_id."""
     tasks = [(email, email_to_name.get(email, email.split('@')[0])) for email in emails]
-    job_id = _create_job(len(tasks))
+    job_id = _create_job(len(tasks), 'removal', course_name, assignment_id)
 
-    def _send(task):
+    def _send(task, smtp_session):
         user_email, user_name = task
-        return send_course_removal_email(user_email, user_name, course_name)
+        return send_course_removal_email(user_email, user_name, course_name,
+                                         session=smtp_session)
+
+    t = threading.Thread(target=_run_email_job, args=(job_id, tasks, _send), daemon=True)
+    t.start()
+    return job_id
+
+
+def _dispatch_reminder_emails(emails, course_name, deadline, days_remaining,
+                              email_to_name, assignment_id=None) -> str:
+    """Start a background job to send deadline reminder emails. Returns job_id."""
+    tasks = [(email, email_to_name.get(email, email.split('@')[0])) for email in emails]
+    job_id = _create_job(len(tasks), 'reminder', course_name, assignment_id)
+
+    def _send(task, smtp_session):
+        user_email, user_name = task
+        return send_deadline_reminder_email(user_email, user_name, course_name, deadline,
+                                            days_remaining, session=smtp_session)
 
     t = threading.Thread(target=_run_email_job, args=(job_id, tasks, _send), daemon=True)
     t.start()
@@ -860,12 +1004,111 @@ def _dispatch_removal_emails(emails, course_name, email_to_name) -> str:
 @app.route('/api/email-job/<job_id>', methods=['GET'])
 @admin_required
 def get_email_job_status(job_id):
-    """Return current progress of an email dispatch job."""
+    """Return current progress of an email dispatch job.
+
+    Falls back to the persisted row once the in-memory job has expired, so a stale
+    browser tab still resolves to the real outcome instead of '404, assume success'.
+    """
     with _email_jobs_lock:
         job = _email_jobs.get(job_id)
+    if job:
+        return jsonify(job)
+
+    persisted = db.read_email_job(job_id)
+    if persisted:
+        return jsonify(persisted)
+    return jsonify({'error': 'Job not found or already expired'}), 404
+
+
+@app.route('/api/email-jobs', methods=['GET'])
+@admin_required
+def list_email_jobs():
+    """Recent email dispatches with their undelivered recipients.
+
+    This is the durable answer to "who didn't get the mail?" — it survives the job
+    TTL, a server restart and log rotation. ?failed_only=true narrows it to runs
+    that actually lost messages.
+    """
+    try:
+        limit = min(max(int(request.args.get('limit', 25)), 1), 200)
+    except (TypeError, ValueError):
+        limit = 25
+    only_failed = request.args.get('failed_only', '').lower() == 'true'
+    try:
+        return jsonify(db.read_email_jobs(limit=limit, only_failed=only_failed))
+    except Exception as e:
+        logger.error(f"Error loading email jobs: {e}")
+        return jsonify({'error': 'Failed to load email jobs'}), 500
+
+
+@app.route('/api/email-jobs/<job_id>/resend', methods=['POST'])
+@admin_required
+@csrf_required
+def resend_failed_emails(job_id):
+    """Re-send a past job's undelivered notifications.
+
+    Eligibility is by *category*, not by whether the failure was permanent within its
+    job. A rate, concurrency, quota or auth failure is worth another attempt — the
+    condition clears on its own or with one fix. Only a bad address is excluded: the
+    server will refuse it identically until someone corrects it. Pass
+    {"include_permanent": true} to attempt those too.
+    """
+    job = db.read_email_job(job_id)
     if not job:
-        return jsonify({'error': 'Job not found or already expired'}), 404
-    return jsonify(job)
+        return jsonify({'error': 'Job not found'}), 404
+    if job.get('kind') not in ('assignment', 'reminder', 'removal'):
+        return jsonify({'error': f"Cannot re-send a '{job.get('kind')}' job"}), 400
+
+    include_all = bool((request.get_json(silent=True) or {}).get('include_permanent'))
+    failures = job.get('failures') or []
+
+    def _eligible(f):
+        if include_all:
+            return True
+        # Rows written before the category field existed fall back to `permanent`.
+        if 'resendable' in f:
+            return bool(f['resendable'])
+        if f.get('category'):
+            return f['category'] != CAT_ADDRESS
+        return not f.get('permanent')
+
+    targets = [f['email'] for f in failures if f.get('email') and _eligible(f)]
+
+    if not targets:
+        skipped = len(failures)
+        return jsonify({
+            'error': 'Nothing to re-send',
+            'detail': (f'All {skipped} failure(s) are bad addresses — they need '
+                       f'correcting before a re-send can succeed.') if skipped
+                      else 'This job had no failures.'
+        }), 400
+
+    assignment_id = job.get('assignment_id')
+    assignments = load_json_file(ASSIGNMENTS_FILE, {'assignments': []}).get('assignments', [])
+    assignment = next((a for a in assignments if a.get('id') == assignment_id), None)
+    if not assignment:
+        return jsonify({'error': 'The assignment this job belongs to no longer exists'}), 404
+
+    users_data = load_json_file(USERS_FILE, {'users': []})
+    email_to_name = {u['email']: u['name'] for u in users_data.get('users', [])}
+
+    logger.info(f"Re-sending {len(targets)} notification(s) from job {job_id} "
+                f"(assignment {assignment_id}) requested by {session.get('username')}")
+
+    if job['kind'] == 'removal':
+        new_job_id = _dispatch_removal_emails(
+            targets, assignment['course_name'], email_to_name, assignment_id)
+    else:
+        new_job_id = _dispatch_assignment_emails(
+            targets, assignment['course_name'], assignment.get('deadline'),
+            email_to_name, assignment_id)
+
+    return jsonify({
+        'message': f'Re-sending to {len(targets)} recipient(s)',
+        'email_job_id': new_job_id,
+        'email_total': len(targets),
+        'skipped_permanent': len(failures) - len(targets),
+    }), 202
 
 
 @app.route('/api/settings/assignments', methods=['GET'])
@@ -946,7 +1189,8 @@ def create_assignment():
     if notify_email:
         users_data = load_json_file(USERS_FILE, {'users': []})
         email_to_name = {u['email']: u['name'] for u in users_data.get('users', [])}
-        email_job_id = _dispatch_assignment_emails(user_emails, course_name, deadline, email_to_name)
+        email_job_id = _dispatch_assignment_emails(user_emails, course_name, deadline,
+                                                   email_to_name, assignment['id'])
 
     return jsonify({
         'message': 'Assignment created successfully',
@@ -1109,8 +1353,6 @@ def send_assignment_reminders(assignment_id):
     """Send reminder emails to incomplete users"""
     try:
         from datetime import datetime, timedelta
-        from email_service import send_deadline_reminder_email
-        
         # Load assignment
         assignments_data = load_json_file(ASSIGNMENTS_FILE, {'assignments': []})
         assignment = next((a for a in assignments_data.get('assignments', []) if a.get('id') == assignment_id), None)
@@ -1142,44 +1384,31 @@ def send_assignment_reminders(assignment_id):
         users_data = load_json_file(USERS_FILE, {'users': []})
         email_to_name = {user['email']: user['name'] for user in users_data.get('users', [])}
         
-        # Send reminders to incomplete users only
-        results = {'success': 0, 'failed': 0, 'skipped': 0, 'failed_emails': []}
-        
-        for user_email in assigned_users:
-            if user_email in completed_users:
-                results['skipped'] += 1
-                continue
-            
-            user_name = email_to_name.get(user_email, user_email.split('@')[0])
-            
-            try:
-                success = send_deadline_reminder_email(
-                    user_email=user_email,
-                    user_name=user_name,
-                    course_name=course_name,
-                    deadline=deadline,
-                    days_remaining=days_remaining
-                )
-                
-                if success:
-                    results['success'] += 1
-                    logger.info(f"Reminder sent to {user_email}")
-                else:
-                    results['failed'] += 1
-                    results['failed_emails'].append(user_email)
-                    logger.warning(f"Failed to send reminder to {user_email}")
-            except Exception as e:
-                results['failed'] += 1
-                results['failed_emails'].append(user_email)
-                logger.error(f"Error sending reminder to {user_email}: {e}")
-        
+        # Reminders go out as a tracked background job, like every other dispatch.
+        # Sending them inline would hold the HTTP request open for the whole batch —
+        # at the paced send rate a large assignment takes minutes, long enough for a
+        # proxy to time the request out — and would open an SMTP connection outside
+        # the serialised runner, which is exactly what blew the concurrency limit.
+        recipients = [e for e in assigned_users if e not in completed_users]
+        skipped = len(assigned_users) - len(recipients)
+
+        if not recipients:
+            return jsonify({
+                'message': 'No reminders needed',
+                'already_completed': skipped,
+                'email_job_id': None,
+                'email_total': 0,
+            })
+
+        job_id = _dispatch_reminder_emails(
+            recipients, course_name, deadline, days_remaining, email_to_name, assignment_id)
+
         return jsonify({
-            'message': 'Reminders sent',
-            'reminders_sent': results['success'],
-            'reminders_failed': results['failed'],
-            'already_completed': results['skipped'],
-            'failed_emails': results['failed_emails']
-        })
+            'message': f'Sending {len(recipients)} reminder(s)',
+            'already_completed': skipped,
+            'email_job_id': job_id,
+            'email_total': len(recipients),
+        }), 202
     except Exception as e:
         logger.error(f"Error sending reminders: {e}")
         return jsonify({'error': 'Failed to send reminders'}), 500
@@ -1191,8 +1420,6 @@ def send_assignment_reminders(assignment_id):
 def update_assignment(assignment_id):
     """Update assignment (add/remove users)"""
     try:
-        from email_service import send_course_assignment_email, send_course_removal_email
-        
         data = request.get_json()
         new_user_emails = data.get('user_emails', [])[:500]
         notify_email = data.get('notify_email', False)
@@ -1250,9 +1477,11 @@ def update_assignment(assignment_id):
             email_total = len(recipients)
             if added_users:
                 email_job_id = _dispatch_assignment_emails(
-                    list(added_users), assignment['course_name'], assignment['deadline'], email_to_name)
+                    list(added_users), assignment['course_name'], assignment['deadline'],
+                    email_to_name, assignment_id)
             if removed_users:
-                _dispatch_removal_emails(list(removed_users), assignment['course_name'], email_to_name)
+                _dispatch_removal_emails(list(removed_users), assignment['course_name'],
+                                         email_to_name, assignment_id)
 
         return jsonify({
             'message': 'Assignment updated successfully',
@@ -1414,7 +1643,8 @@ def bulk_upload_assignment():
         email_job_id = None
         if notify_email:
             email_to_name = {u['email']: u['name'] for u in users}
-            email_job_id = _dispatch_assignment_emails(valid_emails, course_name, deadline, email_to_name)
+            email_job_id = _dispatch_assignment_emails(valid_emails, course_name, deadline,
+                                                       email_to_name, assignment['id'])
 
         return jsonify({
             'message': 'Assignment created successfully',
@@ -1708,24 +1938,75 @@ def dispatch_completion_notifications(api_data=None):
 
         logger.info(f"Completion notifications: dispatching {len(claimed)} email(s)")
         sent = failed = 0
-        with ThreadPoolExecutor(max_workers=_EMAIL_WORKERS) as pool:
-            futures = {pool.submit(_send_completion_email, c): c for c in claimed}
-            for future in as_completed(futures):
-                c = futures[future]
+        failures = []
+        started_at = datetime.now().isoformat(timespec='seconds')
+
+        thread_state = threading.local()
+        sessions = []
+        sessions_lock = threading.Lock()
+
+        def _send(c):
+            smtp = getattr(thread_state, 'session', None)
+            if smtp is None:
+                smtp = SmtpSession()
+                thread_state.session = smtp
+                with sessions_lock:
+                    sessions.append(smtp)
+            return _send_completion_email(c, smtp)
+
+        # Same lock the assignment/reminder jobs use — a completion pass firing while
+        # an admin's dispatch is running must not double the open SMTP connections.
+        try:
+            with _email_dispatch_lock, ThreadPoolExecutor(max_workers=_EMAIL_WORKERS) as pool:
+                futures = {pool.submit(_send, c): c for c in claimed}
+                for future in as_completed(futures):
+                    c = futures[future]
+                    try:
+                        result = future.result()
+                    except SmtpConfigError as e:
+                        logger.error(f"Completion notifications: SMTP config rejected — {e}")
+                        result = SendResult(False, c['email'], str(e), attempts=0,
+                                            permanent=True, category=CAT_AUTH)
+                    except Exception as e:
+                        logger.exception(f"Completion email error for {c['email']}")
+                        result = SendResult(False, c['email'], f'{type(e).__name__}: {e}')
+                    # Success is recorded so it is never re-sent; failure releases the
+                    # claim so the next sync tries again.
+                    db.settle_notification(c['assignment_id'], c['email'], bool(result))
+                    if result:
+                        sent += 1
+                    else:
+                        failed += 1
+                        failures.append(result.as_dict())
+        finally:
+            for smtp in sessions:
                 try:
-                    ok = future.result()
-                except Exception as e:
-                    logger.error(f"Completion email error for {c['email']}: {e}")
-                    ok = False
-                # Success is recorded so it is never re-sent; failure releases the
-                # claim so the next sync tries again.
-                db.settle_notification(c['assignment_id'], c['email'], ok)
-                if ok:
-                    sent += 1
-                else:
-                    failed += 1
+                    smtp.close()
+                except Exception:
+                    pass
 
         logger.info(f"Completion notifications: {sent} sent, {failed} failed")
+        if failures:
+            logger.error(f"Completion notifications: {len(failures)} UNDELIVERED — " +
+                         '; '.join(f"{f['email']} [{f['reason']}]" for f in failures))
+            try:
+                db.record_email_job({
+                    'job_id': str(uuid.uuid4()),
+                    'kind': 'completion',
+                    'assignment_id': None,
+                    'course_name': '',
+                    'total': sent + failed,
+                    'sent': sent,
+                    'failed': failed,
+                    'status': 'completed',
+                    'started_at': started_at,
+                    'finished_at': datetime.now().isoformat(timespec='seconds'),
+                    'triggered_by': 'scheduler',
+                    'failures': failures,
+                })
+            except Exception as e:
+                logger.error(f"Could not persist completion job result: {e}")
+
         return {'sent': sent, 'failed': failed, 'skipped': len(candidates) - len(claimed)}
     except Exception as e:
         logger.error(f"Error dispatching completion notifications: {e}")
@@ -1734,10 +2015,10 @@ def dispatch_completion_notifications(api_data=None):
         _notify_lock.release()
 
 
-def _send_completion_email(c):
+def _send_completion_email(c, session=None):
     return send_course_completion_email(
         user_email=c['email'], user_name=c['name'], course_name=c['course'],
-        completion_date=c['completion_date'], deadline=c.get('deadline'))
+        completion_date=c['completion_date'], deadline=c.get('deadline'), session=session)
 
 
 def fetch_fresh_data_from_api():

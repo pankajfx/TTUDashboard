@@ -599,18 +599,100 @@ notifications). **Nothing is created by the preview endpoint itself.**
 
 ### Background Email Job Tracking
 
-Parallel email dispatch uses `ThreadPoolExecutor` with 8 workers:
+Parallel email dispatch uses `ThreadPoolExecutor`, with **one reused SMTP connection
+per worker** (`email_service.SmtpSession`) rather than a fresh connect+login per
+message:
 
 ```python
-_email_jobs: dict  # { job_id: { total, sent, failed, status } }
-_EMAIL_WORKERS = 8
-_JOB_TTL = 600     # seconds until job entry is cleaned up
+_email_jobs: dict  # { job_id: { total, sent, failed, status, failures, ... } }
+_EMAIL_WORKERS = 3   # env EMAIL_WORKERS. O365 SMTP AUTH allows 3 concurrent connections
+_JOB_TTL = 600       # seconds until the in-memory job entry is cleaned up
 ```
 
-Poll job progress with `GET /api/email-job/<job_id>`. Returns:
-```json
-{ "total": 50, "sent": 32, "failed": 2, "status": "running | completed" }
+Worker count is matched to Office 365's **concurrent connection** limit (3 per
+mailbox). That is the limit production actually hit: the earlier settings (8 workers,
+a fresh connect+login per message, no retry) drew
+
 ```
+432 4.3.2 Concurrent connections limit exceeded (aka.ms/concurrent_sending)
+```
+
+on 41 of 197 recipients, and with no retry those were simply lost.
+
+There is **no explicit messages/minute throttle by default** (`SMTP_RATE_PER_MIN=0`).
+Microsoft publishes 30/min for SMTP AUTH submission, but the production logs show the
+tenant sustaining 660/min (peak 13/second) with zero rate refusals — every failure was
+the concurrency one. The 3-connection ceiling is what paces sending; three serial SMTP
+conversations cannot burst. Set `SMTP_RATE_PER_MIN` to a positive number only if
+genuine `4.4.x` / `4.7.x` throttling shows up in the logs, where retries would absorb
+it but slowly.
+
+**Every dispatch is serialised on `_email_dispatch_lock`.** Capping workers bounds one
+job's connections; the lock bounds the whole process. Without it, an admin creating an
+assignment while the post-sync completion pass is running would open two jobs' worth
+of connections and hit the same limit. A second job reports `status: "queued"` until
+the first finishes. All four senders — assignment, removal, **reminder** and
+completion — go through it.
+
+Reminders are a background job like the rest (`POST .../remind` returns `202` with an
+`email_job_id`). They used to send inline; at the paced send rate that would hold the
+HTTP request open for minutes and open a connection outside the serialised runner.
+
+Poll job progress with `GET /api/email-job/<job_id>`:
+```json
+{ "total": 50, "sent": 47, "failed": 3, "status": "queued | running | completed | aborted",
+  "failures": [ { "email": "a@b.com", "reason": "5.1.10 RecipientNotFound",
+                  "code": 550, "attempts": 1, "permanent": true } ] }
+```
+Once the in-memory entry expires this endpoint falls back to the persisted row, so a
+stale browser tab still resolves to the real outcome.
+
+### Email delivery record
+
+Every dispatch is written to the `email_jobs` table when it finishes, including one
+entry per undelivered recipient with the server's own reason. This is the durable
+answer to "which users did not get the email?" — it outlives the job TTL, a restart
+and log rotation.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/email-jobs?limit=&failed_only=` | Recent dispatches, newest first |
+| `POST /api/email-jobs/<job_id>/resend` | Re-send that job's *transient* failures |
+
+Permanent failures (5xx — unknown mailbox, malformed address) are excluded from a
+re-send: the server will refuse them identically until the address is corrected.
+Pass `{"include_permanent": true}` to override.
+
+The **Email delivery log** button on the Active Assignments tab surfaces all of this,
+with per-recipient reasons, a copy-addresses button and one-click re-send.
+
+Retries live in `email_service.send_email`, so every caller (assignment, reminder,
+removal, completion) inherits them. Failures are **categorised**, because the two
+throttles Exchange applies recover on completely different timescales:
+
+| Category | Example response | Retried | Backoff | Re-sendable later |
+| --- | --- | --- | --- | --- |
+| `concurrency` | `432 4.3.2 Concurrent connections limit exceeded` | yes | exponential, 2–16s | yes |
+| `rate` | `421 4.4.2 Message submission rate … exceeded` | yes | `SMTP_RATE_COOLDOWN` (75s), **global** | yes |
+| `quota` | `550 5.7.232 daily limit for message recipients` | no | — | yes (once it resets) |
+| `address` | `550 5.1.10 RecipientNotFound`, malformed | no | — | **no** — fix the address |
+| `auth` | `535 5.7.139` | aborts batch | — | yes (after fixing credentials) |
+| `transient` | disconnect, timeout | yes | exponential, 2–16s | yes |
+
+Two details matter:
+
+*Rate limits need a different backoff shape.* They are assessed over a rolling
+minute, so exponential backoff (2+4+8+16s = 30s of patience) expires **inside** the
+throttle window and every attempt is wasted. Rate failures wait `SMTP_RATE_COOLDOWN`
+instead.
+
+*A rate limit is global, not per-message.* `_RateLimiter.pause()` stops every worker
+at once, so one shared wait absorbs it rather than each in-flight message
+independently burning its retry budget against the same throttle.
+
+`permanent` ("don't retry in this job") and `resendable` ("worth another attempt
+later") are deliberately separate: an exhausted daily quota is both permanent and
+re-sendable, while an unknown mailbox is neither.
 
 ---
 

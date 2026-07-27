@@ -599,6 +599,117 @@ body.modal-open { overflow: hidden; }
 /* Stat chips at the top of the assignment drill-down: give them room to breathe */
 #assignmentModalStats span { padding: .3rem .7rem !important; }
 
+/* ---------- Undelivered-email report (email dispatch modal) ----------
+   Shown when a send job could not reach every recipient. The addresses are the
+   point of the panel, so they get a selectable monospace list the admin can copy
+   straight out; the reason sits next to each one. */
+.mail-fail {
+    border: 1px solid #fecaca;
+    background: #fef2f2;
+    border-radius: var(--radius-sm);
+    padding: .6rem .7rem;
+    display: flex;
+    flex-direction: column;
+    gap: .45rem;
+}
+.mail-fail-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    font-size: .78rem;
+    font-weight: 600;
+    color: var(--danger);
+}
+.mail-fail-copy {
+    border: 1px solid #fca5a5;
+    background: #fff;
+    color: var(--danger);
+    border-radius: 6px;
+    padding: .15rem .5rem;
+    font-size: .68rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.mail-fail-copy:hover { background: #fee2e2; }
+.mail-fail-list {
+    max-height: 9.5rem;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: .3rem;
+}
+.mail-fail-row {
+    display: flex;
+    flex-direction: column;
+    gap: .05rem;
+    font-size: .7rem;
+    line-height: 1.35;
+    padding-bottom: .3rem;
+    border-bottom: 1px solid #fee2e2;
+}
+.mail-fail-row:last-child { border-bottom: none; padding-bottom: 0; }
+.mail-fail-addr {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: #7f1d1d;
+    font-weight: 600;
+    word-break: break-all;
+    user-select: all;
+}
+.mail-fail-why { color: var(--text-2); word-break: break-word; }
+.mail-fail-tag {
+    display: inline-block;
+    border-radius: 9999px;
+    padding: 0 .4rem;
+    margin-right: .3rem;
+    font-size: .62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .02em;
+}
+.mail-fail-tag.is-permanent { background: #fee2e2; color: #b91c1c; }
+.mail-fail-tag.is-transient { background: #ffedd5; color: #c2410c; }
+.mail-fail-note { font-size: .68rem; color: var(--text-2); }
+
+/* Small neutral action button (toolbar-scale, next to filters) */
+.btn-subtle {
+    border: 1px solid var(--border-strong);
+    background: #fff;
+    color: var(--text-2);
+    border-radius: 6px;
+    padding: .3rem .6rem;
+    font-size: .72rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.btn-subtle:hover { border-color: var(--brand); color: var(--brand); }
+
+/* ---------- Email delivery log ---------- */
+.mail-log-list { display: flex; flex-direction: column; gap: .6rem; }
+.mail-log-item {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: .6rem .7rem;
+    display: flex;
+    flex-direction: column;
+    gap: .4rem;
+}
+.mail-log-item.has-failures { border-color: #fecaca; background: #fffafa; }
+.mail-log-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: .4rem;
+}
+.mail-log-title { font-size: .82rem; font-weight: 600; color: var(--text); }
+.mail-log-meta { font-size: .68rem; color: var(--text-3); }
+.mail-log-counts { font-size: .72rem; color: var(--text-2); }
+.mail-log-counts b { color: var(--danger); }
+.mail-log-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
+
 /* ---------- Scrollbars ---------- */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }

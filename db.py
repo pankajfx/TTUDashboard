@@ -135,6 +135,27 @@ def _create_tables(conn):
             assignment_id INTEGER PRIMARY KEY,
             created_at    TEXT
         );
+        -- Durable record of every bulk email dispatch. The in-memory job dict that
+        -- drives the progress bar is discarded 10 minutes after a job ends, so
+        -- without this the answer to "which recipients did we fail to reach?" only
+        -- survived in the log file until it rotated. `failures` holds one entry per
+        -- undelivered address WITH the server's reason, which is the thing an admin
+        -- actually needs in order to act.
+        CREATE TABLE IF NOT EXISTS email_jobs (
+            job_id        TEXT PRIMARY KEY,
+            kind          TEXT,     -- 'assignment' | 'removal' | 'reminder'
+            assignment_id INTEGER,
+            course_name   TEXT,
+            total         INTEGER,
+            sent          INTEGER,
+            failed        INTEGER,
+            status        TEXT,     -- 'completed' | 'aborted'
+            started_at    TEXT,
+            finished_at   TEXT,
+            triggered_by  TEXT,
+            failures      TEXT      -- JSON [{email, reason, code, attempts, permanent}]
+        );
+        CREATE INDEX IF NOT EXISTS idx_email_jobs_started ON email_jobs(started_at DESC);
     ''')
 
 
@@ -640,6 +661,66 @@ def delete_notifications_for_assignment(assignment_id):
         return False
     finally:
         conn.close()
+
+
+# ── email jobs ──────────────────────────────────────────────────────────────
+# The progress bar reads an in-memory job dict that is dropped shortly after the job
+# ends. These rows are the permanent copy, so "who did we fail to reach, and why?"
+# stays answerable long after the modal is closed and the log file has rotated.
+def record_email_job(job):
+    """Persist one finished dispatch. Overwrites on re-record (same job_id)."""
+    conn = _connect()
+    try:
+        _create_tables(conn)
+        conn.execute(
+            'INSERT OR REPLACE INTO email_jobs (job_id, kind, assignment_id, course_name, '
+            ' total, sent, failed, status, started_at, finished_at, triggered_by, failures) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (job.get('job_id'), job.get('kind'), job.get('assignment_id'),
+             job.get('course_name'), job.get('total', 0), job.get('sent', 0),
+             job.get('failed', 0), job.get('status', 'completed'),
+             job.get('started_at'), job.get('finished_at'), job.get('triggered_by'),
+             json.dumps(job.get('failures') or [])))
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        print(f'db.record_email_job error: {e}')
+        return False
+    finally:
+        conn.close()
+
+
+def _row_to_email_job(r):
+    d = dict(r)
+    d['failures'] = json.loads(d['failures']) if d.get('failures') else []
+    return d
+
+
+def read_email_job(job_id):
+    """One persisted job, or None."""
+    conn = _connect()
+    try:
+        _create_tables(conn)
+        row = conn.execute('SELECT * FROM email_jobs WHERE job_id = ?', (job_id,)).fetchone()
+    finally:
+        conn.close()
+    return _row_to_email_job(row) if row else None
+
+
+def read_email_jobs(limit=50, only_failed=False):
+    """Recent jobs, newest first — the audit list an admin scans after a bad run."""
+    conn = _connect()
+    try:
+        _create_tables(conn)
+        sql = 'SELECT * FROM email_jobs'
+        if only_failed:
+            sql += ' WHERE failed > 0'
+        sql += ' ORDER BY started_at DESC, rowid DESC LIMIT ?'
+        rows = conn.execute(sql, (int(limit),)).fetchall()
+    finally:
+        conn.close()
+    return [_row_to_email_job(r) for r in rows]
 
 
 # ── migration / bootstrap ───────────────────────────────────────────────────

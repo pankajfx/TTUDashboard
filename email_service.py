@@ -1,97 +1,554 @@
 """
 Email Notification Service Module
 Handles sending email notifications for course assignments and reminders
+
+Transport design
+----------------
+Sending used to open a brand-new SMTP connection per message — connect, STARTTLS,
+AUTH, send, disconnect. A 197-recipient assignment therefore meant 197 logins to
+smtp.office365.com fired 8-wide, which is several times over Office 365's SMTP AUTH
+client-submission limits (3 concurrent connections, 30 messages/minute). The server
+answered with transient 4.x.x refusals and, because nothing retried, roughly a fifth
+of the batch was silently dropped.
+
+Three things fix that, and they only work together:
+
+* ``SmtpSession`` keeps ONE authenticated connection alive across many messages, so
+  a batch costs one login instead of N.
+* ``_RateLimiter`` paces every send globally (default 30/min, ``SMTP_RATE_PER_MIN``).
+* ``send_email`` retries with exponential backoff — but only what is worth retrying.
+  A 4xx response, a dropped connection or a timeout is transient. A 5xx rejection
+  (unknown recipient, refused message) and a syntactically invalid address are
+  permanent: they are logged with the address and the server's exact wording, and
+  never retried.
+
+Every outcome — sent, retried, permanently rejected, given up on — is logged with
+the recipient address, so `logs/app.log` is a complete delivery record.
 """
 
-import smtplib
 import logging
 import os
+import random
+import re
+import smtplib
+import socket
+import ssl
+import threading
+import time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import formatdate, make_msgid
 from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# No basicConfig here: this is a library module, and configuring the root logger at
+# import time would hijack the host app's handlers. app.py owns logging config; the
+# __main__ block below sets up its own when this file is run directly.
 logger = logging.getLogger(__name__)
 
 # SMTP Configuration
-SMTP_SERVER = "smtp.office365.com"
-SMTP_PORT = 587
+SMTP_SERVER = os.environ.get('SMTP_SERVER', 'smtp.office365.com')
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
 SMTP_USERNAME = os.environ.get('SMTP_USERNAME', '')
 SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
 SENDER_ADDRESS = SMTP_USERNAME
+SMTP_TIMEOUT = int(os.environ.get('SMTP_TIMEOUT', '30'))
+
+# Retry policy. Backoff is chosen per failure kind, because the two throttles the
+# server applies have very different recovery times:
+#
+#   concurrency (432 4.3.2) — a connection frees up within seconds, so the ordinary
+#       exponential backoff (2s, 4s, 8s, 16s) is the right shape.
+#   rate limit  (4.4.2 etc.) — assessed over a ROLLING MINUTE. Exponential backoff is
+#       useless here: 2+4+8+16s of patience expires long before the window does, and
+#       every attempt is spent inside the throttle. These wait SMTP_RATE_COOLDOWN
+#       instead, and pause every other sender with them (see _RateLimiter.pause).
+SMTP_MAX_ATTEMPTS = max(1, int(os.environ.get('SMTP_MAX_ATTEMPTS', '5')))
+SMTP_BACKOFF_BASE = float(os.environ.get('SMTP_BACKOFF_BASE', '2.0'))
+SMTP_BACKOFF_CAP = float(os.environ.get('SMTP_BACKOFF_CAP', '60'))
+# Long enough to outlast a rolling-minute window, with margin for clock skew.
+SMTP_RATE_COOLDOWN = float(os.environ.get('SMTP_RATE_COOLDOWN', '75'))
+# Explicit messages/minute throttle. DISABLED by default (0), deliberately.
+#
+# Microsoft publishes 30 messages/minute for SMTP AUTH client submission, but the
+# production logs show this tenant sustaining 660/minute (peak 13/second) with zero
+# rate-limit responses — every single refusal was 432 4.3.2 concurrency, never a
+# 4.4.x/4.7.x throttle. Throttling to 30/min would be 22x slower than the rate the
+# server demonstrably accepts, in exchange for a limit there is no evidence it
+# enforces.
+#
+# Pacing is instead a consequence of SMTP_MAX_CONNECTIONS: three serial SMTP
+# conversations physically cannot exceed a few messages per second, which is the
+# throughput profile that already worked. Set this to a positive number only if the
+# logs start showing genuine rate refusals (4.4.x / 4.7.x).
+SMTP_RATE_PER_MIN = int(os.environ.get('SMTP_RATE_PER_MIN', '0'))
+
+# NOTE on concurrent connections. The limit production actually hit was
+#   432 4.3.2 Concurrent connections limit exceeded (aka.ms/concurrent_sending)
+# so the number of connections open at once is the critical quantity. It is bounded
+# structurally rather than here: one session per worker thread, and app.py runs every
+# dispatch through a single serialised job runner with EMAIL_WORKERS threads. A
+# semaphore in this module would look tempting but starves — a session holds its
+# connection for a whole batch, so two overlapping batches would deadlock on it.
+
+# Deliberately permissive — this only catches addresses that can never be delivered
+# (empty, no @, spaces, no dot in the domain). Anything plausible goes to the server,
+# which is the real authority on whether a mailbox exists.
+_ADDR_RE = re.compile(
+    r"^[^@\s,;:<>\"\\]+@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?"
+    r"(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$")
 
 
-def send_email(to_address, subject, body_html, body_text=None):
+class SmtpConfigError(RuntimeError):
+    """Credentials or server config are wrong, not this one message.
+
+    Every remaining message in the batch would fail identically, and hammering AUTH
+    is how an account gets locked out — so callers should abort the batch instead of
+    retrying. Raised only for a 5xx AUTH rejection; a 4xx one is a temporary
+    throttle and stays retryable.
     """
-    Send an email notification
-    
+
+
+# Failure categories. These drive three decisions: how long to back off, whether to
+# retry at all, and whether a later re-send is worth attempting.
+#
+#   'concurrency' too many simultaneous connections -> short backoff, retry
+#   'rate'        messages/minute throttle          -> long cooldown, retry
+#   'quota'       daily/mailbox quota exhausted     -> no retry now, re-send later
+#   'address'     malformed or unknown mailbox      -> no retry, address must be fixed
+#   'auth'        credentials rejected              -> abort the batch
+#   'transient'   anything else recoverable         -> short backoff, retry
+CAT_CONCURRENCY = 'concurrency'
+CAT_RATE = 'rate'
+CAT_QUOTA = 'quota'
+CAT_ADDRESS = 'address'
+CAT_AUTH = 'auth'
+CAT_TRANSIENT = 'transient'
+
+# Matched against the server's own words, lowercased. Concurrency is tested FIRST:
+# "Concurrent connections limit exceeded" also contains "limit exceeded", which would
+# otherwise be read as a rate limit and earn a needless 75-second cooldown.
+_CONCURRENCY_MARKERS = ('concurrent connection', 'concurrent sending',
+                        'too many concurrent')
+_RATE_MARKERS = ('4.4.2', 'submission rate', 'message rate', 'rate limit',
+                 'rate exceeded', 'throttl', 'too many messages',
+                 'sending limit', 'try again later', 'server busy',
+                 # Exchange's wording for the messages/minute limit.
+                 'storedrv.clientsubmit', 'thread limit')
+_QUOTA_MARKERS = ('5.7.232', 'daily limit', 'over quota', 'quota exceeded',
+                  'mailbox is full', 'mailbox full', 'insufficient system storage')
+_ADDRESS_MARKERS = ('recipientnotfound', 'user unknown', 'unknown recipient',
+                    'no such user', 'does not exist', 'invalid recipient',
+                    'address rejected', '5.1.1', '5.1.10')
+
+
+def _categorize(code, reason):
+    """Classify a server response by what it actually means for delivery."""
+    text = (reason or '').lower()
+    if any(m in text for m in _CONCURRENCY_MARKERS):
+        return CAT_CONCURRENCY
+    if any(m in text for m in _QUOTA_MARKERS):
+        return CAT_QUOTA
+    if any(m in text for m in _RATE_MARKERS):
+        return CAT_RATE
+    if any(m in text for m in _ADDRESS_MARKERS):
+        return CAT_ADDRESS
+    try:
+        if 500 <= int(code) < 600:
+            return CAT_ADDRESS   # an unexplained hard rejection is address-shaped
+    except (TypeError, ValueError):
+        pass
+    return CAT_TRANSIENT
+
+
+class SendResult:
+    """Outcome of one send attempt chain.
+
+    Falsy when the send failed, so existing call sites that do ``if send_email(...)``
+    or ``return send_email(...)`` keep working unchanged, while the email-job runner
+    can read ``.reason`` to report exactly who was missed and why.
+
+    ``permanent`` means "do not retry inside this job". ``resendable`` is the
+    different question of whether a later re-send could succeed — a quota failure is
+    permanent for today but worth retrying tomorrow, whereas an unknown mailbox is
+    not worth retrying until someone corrects the address.
+    """
+
+    __slots__ = ('ok', 'address', 'reason', 'code', 'attempts', 'permanent', 'category')
+
+    def __init__(self, ok, address, reason='', code=None, attempts=1, permanent=False,
+                 category=CAT_TRANSIENT):
+        self.ok = bool(ok)
+        self.address = address
+        self.reason = reason
+        self.code = code
+        self.attempts = attempts
+        self.permanent = permanent
+        self.category = category
+
+    def __bool__(self):
+        return self.ok
+
+    @property
+    def resendable(self):
+        """Is a later re-send worth attempting?
+
+        Only a bad address is not: it needs correcting per recipient first. Rate,
+        concurrency, quota and auth failures are all conditions that clear on their
+        own or with one fix, after which re-sending the same address should work.
+        """
+        return self.category != CAT_ADDRESS
+
+    def as_dict(self):
+        return {'email': self.address, 'reason': self.reason, 'code': self.code,
+                'attempts': self.attempts, 'permanent': self.permanent,
+                'category': self.category, 'resendable': self.resendable}
+
+    def __repr__(self):
+        state = 'ok' if self.ok else ('permanent' if self.permanent else 'transient')
+        return f'<SendResult {self.address} {state}/{self.category} {self.reason!r}>'
+
+
+class _RateLimiter:
+    """Global send gate shared by every worker thread. Two mechanisms:
+
+    * a steady-state pace of ``per_minute`` messages (0 = unpaced, the default —
+      the connection ceiling already bounds throughput);
+    * an ADAPTIVE COOLDOWN. When the server says the rate has been exceeded, the
+      condition is global, not specific to that one message. Letting each worker
+      discover it independently would burn every message's retry budget against the
+      same throttle. ``pause()`` stops all senders at once, so a rate limit costs one
+      shared wait instead of N separate failures.
+    """
+
+    def __init__(self, per_minute):
+        self._interval = 60.0 / per_minute if per_minute > 0 else 0.0
+        self._lock = threading.Lock()
+        self._next = 0.0
+        self._cooldown_until = 0.0
+
+    def acquire(self):
+        # Honour an active cooldown first. Re-checked in slices because another
+        # worker may extend it while this one is waiting.
+        while True:
+            with self._lock:
+                remaining = self._cooldown_until - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(remaining, 5.0))
+
+        if self._interval <= 0:
+            return
+        with self._lock:
+            now = time.monotonic()
+            wait = max(0.0, self._next - now)
+            self._next = max(now, self._next) + self._interval
+        if wait > 0:
+            time.sleep(wait)
+
+    def pause(self, seconds):
+        """Hold every sender for ``seconds``. Returns True if this call set a new,
+        later cooldown (so only the first worker to notice logs it)."""
+        with self._lock:
+            target = time.monotonic() + seconds
+            if target > self._cooldown_until:
+                self._cooldown_until = target
+                return True
+            return False
+
+    @property
+    def cooling_down(self):
+        with self._lock:
+            return max(0.0, self._cooldown_until - time.monotonic())
+
+
+_rate_limiter = _RateLimiter(SMTP_RATE_PER_MIN)
+
+
+def _decode(value):
+    """SMTP error text arrives as bytes; make it readable for logs."""
+    if isinstance(value, bytes):
+        return value.decode('utf-8', 'replace').strip()
+    return str(value or '').strip()
+
+
+def valid_address(address):
+    """True if the address is worth handing to the SMTP server at all."""
+    return bool(address) and len(address) <= 320 and _ADDR_RE.match(address) is not None
+
+
+def _classify(exc):
+    """Map an exception to (permanent, code, reason, category).
+
+    ``permanent`` means retrying inside this job cannot help — a bad or unknown
+    recipient, a refused body, an exhausted daily quota. Everything else is retried,
+    with the category deciding how patiently (see SMTP_RATE_COOLDOWN).
+    """
+    def done(code, reason, force_permanent=None):
+        category = _categorize(code, reason)
+        if force_permanent is not None:
+            permanent = force_permanent
+        elif category in (CAT_CONCURRENCY, CAT_RATE, CAT_TRANSIENT):
+            permanent = False
+        elif category == CAT_QUOTA:
+            # A daily/mailbox quota will not clear inside a retry window, but it is
+            # not the address's fault either — re-send once it resets.
+            permanent = True
+        else:
+            permanent = True
+        return permanent, code, reason, category
+
+    # Not a subclass of SMTPResponseException, so it has to come first.
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        recipients = getattr(exc, 'recipients', {}) or {}
+        if recipients:
+            code, msg = next(iter(recipients.values()))
+            code, msg = int(code), _decode(msg)
+            # A 4xx recipient refusal is transient whatever the wording suggests.
+            return done(code, msg, force_permanent=False if code < 500 else None)
+        return done(None, 'Recipient refused by server', force_permanent=True)
+
+    # A failed connection reports the server's greeting code, but the condition is
+    # about the server's availability, not this message — always retryable.
+    if isinstance(exc, smtplib.SMTPConnectError):
+        code = getattr(exc, 'smtp_code', None)
+        return done(code, _decode(getattr(exc, 'smtp_error', exc)), force_permanent=False)
+
+    if isinstance(exc, smtplib.SMTPResponseException):
+        code = getattr(exc, 'smtp_code', None)
+        reason = _decode(getattr(exc, 'smtp_error', exc))
+        try:
+            code = int(code)
+        except (TypeError, ValueError):
+            return done(None, reason, force_permanent=False)
+        # 4xx is transient by definition; 5xx falls to the category rules.
+        return done(code, reason, force_permanent=False if code < 500 else None)
+
+    if isinstance(exc, smtplib.SMTPServerDisconnected):
+        reason = f'Server disconnected: {exc}' if str(exc) else 'Server disconnected'
+        return False, None, reason, CAT_TRANSIENT
+
+    if isinstance(exc, (socket.timeout, TimeoutError)):
+        return False, None, 'Timed out talking to SMTP server', CAT_TRANSIENT
+
+    if isinstance(exc, (socket.gaierror, ConnectionError, OSError, ssl.SSLError)):
+        return False, None, f'{type(exc).__name__}: {exc}', CAT_TRANSIENT
+
+    return False, None, f'{type(exc).__name__}: {exc}', CAT_TRANSIENT
+
+
+class SmtpSession:
+    """One authenticated SMTP connection, reused across many messages.
+
+    Not thread-safe on purpose — an SMTP connection is a single command stream, so
+    give each worker thread its own session (see app._run_email_job). The connection
+    is opened lazily on first send and re-opened transparently if the server drops
+    it, which O365 does routinely on idle or throttled connections.
+    """
+
+    def __init__(self, server=None, port=None, username=None, password=None, timeout=None):
+        self.server = server or SMTP_SERVER
+        self.port = port or SMTP_PORT
+        self.username = username if username is not None else SMTP_USERNAME
+        self.password = password if password is not None else SMTP_PASSWORD
+        self.timeout = timeout or SMTP_TIMEOUT
+        self.sent_count = 0
+        self.connect_count = 0
+        self._conn = None
+
+    def _ensure(self):
+        if self._conn is not None:
+            try:
+                self._conn.noop()
+                return self._conn
+            except Exception as e:
+                logger.info(f'SMTP connection went stale ({e}); reconnecting')
+                self.invalidate()
+
+        conn = smtplib.SMTP(self.server, self.port, timeout=self.timeout)
+        try:
+            conn.ehlo()
+            conn.starttls(context=ssl.create_default_context())
+            conn.ehlo()
+            conn.login(self.username, self.password)
+        except smtplib.SMTPAuthenticationError as e:
+            code = getattr(e, 'smtp_code', None)
+            reason = _decode(getattr(e, 'smtp_error', e))
+            self._close_quietly(conn)
+            if code and 400 <= int(code) < 500:
+                # e.g. 454 4.7.0 "Too many login attempts", or the 432 4.3.2
+                # concurrency refusal — throttles, so let the caller back off and
+                # retry rather than abandoning the batch.
+                logger.warning(f'SMTP auth throttled ({code}): {reason}')
+                raise
+            logger.error(f'SMTP authentication rejected for {self.username} ({code}): {reason}')
+            raise SmtpConfigError(f'SMTP authentication rejected ({code}): {reason}') from e
+        except Exception:
+            self._close_quietly(conn)
+            raise
+
+        self._conn = conn
+        self.connect_count += 1
+        logger.info(f'SMTP connection opened to {self.server}:{self.port} as {self.username} '
+                    f'(connection #{self.connect_count} for this session)')
+        return conn
+
+    def send(self, msg, to_address):
+        conn = self._ensure()
+        conn.send_message(msg, to_addrs=[to_address])
+        self.sent_count += 1
+
+    @staticmethod
+    def _close_quietly(conn):
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    def invalidate(self):
+        """Drop the connection without a polite QUIT — used when it is already broken."""
+        if self._conn is not None:
+            self._close_quietly(self._conn)
+            self._conn = None
+
+    def close(self):
+        if self._conn is None:
+            return
+        try:
+            self._conn.quit()
+            self._conn = None
+        except Exception:
+            self.invalidate()
+        logger.info(f'SMTP session closed after {self.sent_count} message(s)')
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+
+def _build_message(to_address, subject, body_html, body_text=None):
+    msg = MIMEMultipart('alternative')
+    msg['From'] = SENDER_ADDRESS
+    msg['To'] = to_address
+    msg['Subject'] = subject
+    # Date and Message-ID are absent from bare MIMEMultipart and their absence is a
+    # spam-filter signal; several receivers score mail without them.
+    msg['Date'] = formatdate(localtime=True)
+    msg['Message-ID'] = make_msgid()
+    if body_text:
+        msg.attach(MIMEText(body_text, 'plain', 'utf-8'))
+    msg.attach(MIMEText(body_html, 'html', 'utf-8'))
+    return msg
+
+
+def send_email(to_address, subject, body_html, body_text=None, session=None):
+    """
+    Send an email notification, retrying transient SMTP failures.
+
     Args:
         to_address (str): Recipient email address
         subject (str): Email subject
         body_html (str): HTML body content
         body_text (str, optional): Plain text body content
-    
+        session (SmtpSession, optional): Connection to reuse. Pass one when sending a
+            batch — otherwise a throwaway connection is opened and closed per message,
+            which is what the per-message-connection design used to do.
+
     Returns:
-        bool: True if email sent successfully, False otherwise
+        SendResult: falsy on failure, carrying .reason / .code / .attempts. Callers
+        that treat the return value as a bool keep working.
+
+    Raises:
+        SmtpConfigError: credentials were rejected outright. Not a per-message
+            failure — the caller should abort the whole batch.
     """
+    address = (to_address or '').strip()
+
+    # Rejected before any network call: no server round-trip can fix a malformed
+    # address, and it must still be reported rather than swallowed.
+    if not valid_address(address):
+        logger.error(f'INVALID ADDRESS — not sending: {address!r} (subject: {subject!r})')
+        return SendResult(False, address, 'Invalid email address', attempts=0,
+                          permanent=True, category=CAT_ADDRESS)
+
+    msg = _build_message(address, subject, body_html, body_text)
+    own_session = session is None
+    sess = session or SmtpSession()
+    result = None
+
     try:
-        logger.info(f"Attempting to send email to {to_address} with subject: {subject}")
-        
-        # Create message
-        msg = MIMEMultipart('alternative')
-        msg['From'] = SENDER_ADDRESS
-        msg['To'] = to_address
-        msg['Subject'] = subject
-        
-        # Add plain text version if provided
-        if body_text:
-            part1 = MIMEText(body_text, 'plain')
-            msg.attach(part1)
-            logger.debug("Added plain text body to email")
-        
-        # Add HTML version
-        part2 = MIMEText(body_html, 'html')
-        msg.attach(part2)
-        logger.debug("Added HTML body to email")
-        
-        # Connect to SMTP server
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            logger.debug(f"Connected to SMTP server {SMTP_SERVER}:{SMTP_PORT} with TLS")
-            server.login(SMTP_USERNAME, SMTP_PASSWORD)
-            logger.debug("SMTP authentication successful")
-            server.send_message(msg)
-        
-        logger.info(f"Email sent successfully to {to_address}")
-        return True
-        
-    except smtplib.SMTPAuthenticationError as e:
-        logger.error(f"SMTP authentication failed: {e}")
-        return False
-    except smtplib.SMTPException as e:
-        logger.error(f"SMTP error sending email to {to_address}: {e}")
-        return False
-    except Exception as e:
-        logger.error(f"Unexpected error sending email to {to_address}: {e}")
-        return False
+        for attempt in range(1, SMTP_MAX_ATTEMPTS + 1):
+            _rate_limiter.acquire()
+            try:
+                sess.send(msg, address)
+                if attempt > 1:
+                    logger.info(f'Email sent successfully to {address} on attempt '
+                                f'{attempt}/{SMTP_MAX_ATTEMPTS} (subject: {subject!r})')
+                else:
+                    logger.info(f'Email sent successfully to {address}')
+                return SendResult(True, address, attempts=attempt)
+            except SmtpConfigError:
+                raise
+            except Exception as e:
+                permanent, code, reason, category = _classify(e)
+                result = SendResult(False, address, reason, code, attempt, permanent,
+                                    category)
+
+                if permanent:
+                    logger.error(f'PERMANENT delivery failure for {address} '
+                                 f'[{category}/{code or "-"}]: {reason} — not retrying')
+                    return result
+
+                # Transient: the connection may be half-dead, so force a fresh one.
+                sess.invalidate()
+
+                if attempt >= SMTP_MAX_ATTEMPTS:
+                    logger.error(f'GAVE UP on {address} after {attempt} attempt(s) '
+                                 f'[{category}/{code or "-"}]: {reason}')
+                    return result
+
+                if category == CAT_RATE:
+                    # The throttle is assessed over a rolling minute and applies to
+                    # every sender, so wait it out properly and take the other
+                    # workers with us instead of each one rediscovering it.
+                    delay = SMTP_RATE_COOLDOWN
+                    if _rate_limiter.pause(delay):
+                        logger.warning(
+                            f'RATE LIMIT reported by server [{code or "-"}]: {reason} '
+                            f'— pausing all senders for {delay:.0f}s')
+                else:
+                    delay = min(SMTP_BACKOFF_BASE ** attempt, SMTP_BACKOFF_CAP)
+                    delay += random.uniform(0, delay * 0.25)  # jitter: avoid lockstep
+
+                logger.warning(f'Transient failure for {address} on attempt '
+                               f'{attempt}/{SMTP_MAX_ATTEMPTS} [{category}/{code or "-"}]: '
+                               f'{reason} — retrying in {delay:.1f}s')
+                time.sleep(delay)
+
+        return result
+    finally:
+        if own_session:
+            sess.close()
 
 
-def send_course_assignment_email(user_email, user_name, course_name, deadline):
+def send_course_assignment_email(user_email, user_name, course_name, deadline, session=None):
     """
     Send course assignment notification to user with styled HTML template
-    
+
     Args:
         user_email (str): User's email address
         user_name (str): User's name
         course_name (str): Name of the assigned course
         deadline (str): Course completion deadline (YYYY-MM-DD)
-    
+        session (SmtpSession, optional): connection to reuse across a batch
+
     Returns:
-        bool: True if email sent successfully, False otherwise
+        SendResult: falsy if the email could not be delivered
     """
     subject = f"📚 New Course Assignment: {course_name}"
     
@@ -297,20 +754,25 @@ Safety & Health Excellence Support Team
 
 ---
 This is an automated notification."""
-    
-    return send_email(user_email, subject, body_html, body_text)
+
+    return send_email(user_email, subject, body_html, body_text, session=session)
 
 
-def send_deadline_reminder_email(user_email, user_name, course_name, deadline, days_remaining):
+def send_deadline_reminder_email(user_email, user_name, course_name, deadline, days_remaining,
+                                 session=None):
     """
     Send deadline reminder notification to user
-    
+
     Args:
         user_email (str): User's email address
         user_name (str): User's name
         course_name (str): Name of the course
         deadline (str): Course completion deadline
         days_remaining (int): Days remaining until deadline
+        session (SmtpSession, optional): connection to reuse across a batch
+
+    Returns:
+        SendResult: falsy if the email could not be delivered
     """
     subject = f"⏰ REMINDER: Course Deadline - {course_name}"
     
@@ -529,21 +991,22 @@ Safety & Health Excellence Support Team
 
 ---
 This is an automated reminder."""
-    
-    return send_email(user_email, subject, body_html, body_text)
+
+    return send_email(user_email, subject, body_html, body_text, session=session)
 
 
-def send_course_removal_email(user_email, user_name, course_name):
+def send_course_removal_email(user_email, user_name, course_name, session=None):
     """
     Send notification when user is removed from a course assignment
-    
+
     Args:
         user_email (str): User's email address
         user_name (str): User's name
         course_name (str): Name of the course
-    
+        session (SmtpSession, optional): connection to reuse across a batch
+
     Returns:
-        bool: True if email sent successfully, False otherwise
+        SendResult: falsy if the email could not be delivered
     """
     subject = f"Course Assignment Removed: {course_name}"
     
@@ -690,12 +1153,12 @@ Safety & Health Excellence Support Team
 
 ---
 This is an automated notification."""
-    
-    return send_email(user_email, subject, body_html, body_text)
+
+    return send_email(user_email, subject, body_html, body_text, session=session)
 
 
 def send_course_completion_email(user_email, user_name, course_name, completion_date,
-                                 deadline=None):
+                                 deadline=None, session=None):
     """
     Congratulate a user who has completed a course they were assigned.
 
@@ -710,9 +1173,10 @@ def send_course_completion_email(user_email, user_name, course_name, completion_
         course_name (str): Name of the completed course
         completion_date (str): Date the course was completed (YYYY-MM-DD)
         deadline (str, optional): The assignment deadline, shown when known
+        session (SmtpSession, optional): connection to reuse across a batch
 
     Returns:
-        bool: True if email sent successfully, False otherwise
+        SendResult: falsy if the email could not be delivered
     """
     subject = f"✅ Course Completed: {course_name}"
 
@@ -888,31 +1352,55 @@ Safety & Health Excellence Support Team
 ---
 This is an automated notification."""
 
-    return send_email(user_email, subject, body_html, body_text)
+    return send_email(user_email, subject, body_html, body_text, session=session)
 
 
 def send_bulk_emails(recipients, subject, body_html, body_text=None):
     """
-    Send email to multiple recipients
+    Send the same email to multiple recipients over a single SMTP connection.
 
     Args:
         recipients (list): List of email addresses
         subject (str): Email subject
         body_html (str): HTML body content
         body_text (str, optional): Plain text body content
-    
+
     Returns:
-        dict: Results with success/failure counts
+        dict: {'success': n, 'failed': n, 'failed_emails': [...],
+               'failures': [{'email', 'reason', 'code', 'attempts', 'permanent'}, ...]}
+        ``failures`` carries the reason per address so the caller can report *why*,
+        not merely how many.
     """
-    results = {'success': 0, 'failed': 0, 'failed_emails': []}
-    
-    for email in recipients:
-        if send_email(email, subject, body_html, body_text):
-            results['success'] += 1
-        else:
-            results['failed'] += 1
-            results['failed_emails'].append(email)
-    
+    results = {'success': 0, 'failed': 0, 'failed_emails': [], 'failures': []}
+
+    with SmtpSession() as session:
+        for email in recipients:
+            try:
+                result = send_email(email, subject, body_html, body_text, session=session)
+            except SmtpConfigError as e:
+                # Credentials are wrong: every remaining address fails identically.
+                logger.error(f'Aborting bulk send after {results["success"]} sent — {e}')
+                for remaining in recipients[recipients.index(email):]:
+                    results['failed'] += 1
+                    results['failed_emails'].append(remaining)
+                    results['failures'].append(
+                        SendResult(False, remaining, str(e), attempts=0, permanent=True).as_dict())
+                break
+
+            if result:
+                results['success'] += 1
+            else:
+                results['failed'] += 1
+                results['failed_emails'].append(email)
+                results['failures'].append(result.as_dict())
+
+    if results['failed']:
+        logger.error(f'Bulk send finished: {results["success"]} sent, {results["failed"]} failed. '
+                     f'Undelivered: ' +
+                     '; '.join(f'{f["email"]} [{f["reason"]}]' for f in results['failures']))
+    else:
+        logger.info(f'Bulk send finished: {results["success"]} sent, 0 failed')
+
     return results
 
 
@@ -944,8 +1432,25 @@ def get_assignment_email_template(course_name, deadline):
 
 
 if __name__ == "__main__":
-    # Test email functionality
+    # Run directly to check the transport config, or pass an address to send a probe:
+    #   python email_service.py you@example.com
+    import sys
+
+    logging.basicConfig(
+        level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+
     print("Email Service Module")
-    print(f"SMTP Server: {SMTP_SERVER}:{SMTP_PORT}")
-    print(f"Sender: {SENDER_ADDRESS}")
-    print("\nReady to send notifications!")
+    print(f"SMTP Server     : {SMTP_SERVER}:{SMTP_PORT}")
+    print(f"Sender          : {SENDER_ADDRESS or '(SMTP_USERNAME not set)'}")
+    print(f"Rate limit      : {SMTP_RATE_PER_MIN or 'disabled'} messages/minute")
+    print(f"Retry policy    : up to {SMTP_MAX_ATTEMPTS} attempt(s), "
+          f"base-{SMTP_BACKOFF_BASE} backoff capped at {SMTP_BACKOFF_CAP}s")
+
+    if len(sys.argv) > 1:
+        target = sys.argv[1]
+        print(f"\nSending a test message to {target} ...")
+        outcome = send_email(target, 'SMTP test', '<p>SMTP transport test.</p>', 'SMTP transport test.')
+        print('Result:', 'delivered' if outcome else f'FAILED — {outcome.reason}')
+    else:
+        print("\nReady to send notifications! "
+              "(pass an address as an argument to send a test message)")
