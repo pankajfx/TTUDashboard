@@ -819,7 +819,7 @@ _email_dispatch_lock = threading.Lock()
 
 
 def _create_job(total: int, kind: str = 'assignment', course_name: str = '',
-                assignment_id=None) -> str:
+                assignment_id=None, triggered_by=None) -> str:
     job_id = str(uuid.uuid4())
     with _email_jobs_lock:
         _email_jobs[job_id] = {
@@ -834,7 +834,8 @@ def _create_job(total: int, kind: str = 'assignment', course_name: str = '',
             'failures': [],
             'started_at': datetime.now().isoformat(timespec='seconds'),
             'finished_at': None,
-            'triggered_by': session.get('username') if has_request_context() else None,
+            'triggered_by': triggered_by or (
+                session.get('username') if has_request_context() else None),
         }
     return job_id
 
@@ -881,12 +882,20 @@ def _finish_job(job_id: str, status: str = 'completed'):
     threading.Thread(target=_cleanup, daemon=True).start()
 
 
-def _run_email_job(job_id, tasks, send_fn):
+def _run_email_job(job_id, tasks, send_fn, on_result=None):
     """Send a batch in parallel, reusing one SMTP connection per worker thread.
 
-    ``send_fn(task, session)`` returns a SendResult. Retries live inside
-    email_service.send_email, so anything that arrives here as a failure has already
-    exhausted its retries or was permanent (bad address, mailbox refused).
+    This is the single path every email in the app goes through — assignment,
+    removal, reminder and completion — so retries, the connection ceiling, failure
+    categorisation, logging and the durable record behave identically for all of them.
+
+    ``send_fn(task, session)`` returns a SendResult. ``on_result(task, result)`` is an
+    optional per-message hook for callers that must record each outcome as it lands
+    (completion notifications settle their claim ledger this way).
+
+    Retries live inside email_service.send_email, so anything that arrives here as a
+    failure has already exhausted its retries or was permanent (bad address, mailbox
+    refused).
 
     Serialised on _email_dispatch_lock so the process never holds more than
     EMAIL_WORKERS SMTP connections, however many dispatches are requested at once.
@@ -933,9 +942,16 @@ def _run_email_job(job_id, tasks, send_fn):
                 _email_jobs[job_id]['status'] = 'running'
         try:
             with ThreadPoolExecutor(max_workers=_EMAIL_WORKERS) as pool:
-                futures = [pool.submit(_one, task) for task in tasks]
+                futures = {pool.submit(_one, task): task for task in tasks}
                 for future in as_completed(futures):
                     result = future.result()
+                    if on_result is not None:
+                        try:
+                            on_result(futures[future], result)
+                        except Exception:
+                            logger.exception(
+                                f"Email job {job_id}: on_result hook failed for "
+                                f"{result.address}")
                     with _email_jobs_lock:
                         job = _email_jobs.get(job_id)
                         if not job:
@@ -1937,75 +1953,34 @@ def dispatch_completion_notifications(api_data=None):
             return {'sent': 0, 'failed': 0, 'skipped': 0}
 
         logger.info(f"Completion notifications: dispatching {len(claimed)} email(s)")
-        sent = failed = 0
-        failures = []
-        started_at = datetime.now().isoformat(timespec='seconds')
 
-        thread_state = threading.local()
-        sessions = []
-        sessions_lock = threading.Lock()
+        # Runs through the same job runner as every other email, so completions get
+        # identical treatment: connection reuse, the process-wide connection ceiling,
+        # categorised retries, the batch-abort on bad credentials, and a persisted
+        # per-recipient record in the Email delivery log.
+        courses = {c.get('course') for c in claimed if c.get('course')}
+        tasks = [(c['email'], c) for c in claimed]
+        job_id = _create_job(len(tasks), 'completion',
+                             next(iter(courses)) if len(courses) == 1 else '',
+                             triggered_by='scheduler')
 
-        def _send(c):
-            smtp = getattr(thread_state, 'session', None)
-            if smtp is None:
-                smtp = SmtpSession()
-                thread_state.session = smtp
-                with sessions_lock:
-                    sessions.append(smtp)
-            return _send_completion_email(c, smtp)
+        def _send(task, smtp_session):
+            return _send_completion_email(task[1], smtp_session)
 
-        # Same lock the assignment/reminder jobs use — a completion pass firing while
-        # an admin's dispatch is running must not double the open SMTP connections.
-        try:
-            with _email_dispatch_lock, ThreadPoolExecutor(max_workers=_EMAIL_WORKERS) as pool:
-                futures = {pool.submit(_send, c): c for c in claimed}
-                for future in as_completed(futures):
-                    c = futures[future]
-                    try:
-                        result = future.result()
-                    except SmtpConfigError as e:
-                        logger.error(f"Completion notifications: SMTP config rejected — {e}")
-                        result = SendResult(False, c['email'], str(e), attempts=0,
-                                            permanent=True, category=CAT_AUTH)
-                    except Exception as e:
-                        logger.exception(f"Completion email error for {c['email']}")
-                        result = SendResult(False, c['email'], f'{type(e).__name__}: {e}')
-                    # Success is recorded so it is never re-sent; failure releases the
-                    # claim so the next sync tries again.
-                    db.settle_notification(c['assignment_id'], c['email'], bool(result))
-                    if result:
-                        sent += 1
-                    else:
-                        failed += 1
-                        failures.append(result.as_dict())
-        finally:
-            for smtp in sessions:
-                try:
-                    smtp.close()
-                except Exception:
-                    pass
+        def _settle(task, result):
+            # Success is recorded so it is never re-sent; failure releases the claim
+            # so the next sync tries again.
+            c = task[1]
+            db.settle_notification(c['assignment_id'], c['email'], bool(result))
 
-        logger.info(f"Completion notifications: {sent} sent, {failed} failed")
-        if failures:
-            logger.error(f"Completion notifications: {len(failures)} UNDELIVERED — " +
-                         '; '.join(f"{f['email']} [{f['reason']}]" for f in failures))
-            try:
-                db.record_email_job({
-                    'job_id': str(uuid.uuid4()),
-                    'kind': 'completion',
-                    'assignment_id': None,
-                    'course_name': '',
-                    'total': sent + failed,
-                    'sent': sent,
-                    'failed': failed,
-                    'status': 'completed',
-                    'started_at': started_at,
-                    'finished_at': datetime.now().isoformat(timespec='seconds'),
-                    'triggered_by': 'scheduler',
-                    'failures': failures,
-                })
-            except Exception as e:
-                logger.error(f"Could not persist completion job result: {e}")
+        # Called synchronously — this already runs on the scheduler thread, and the
+        # caller wants the counts. _run_email_job takes _email_dispatch_lock itself.
+        _run_email_job(job_id, tasks, _send, on_result=_settle)
+
+        with _email_jobs_lock:
+            job = _email_jobs.get(job_id, {})
+            sent = job.get('sent', 0)
+            failed = job.get('failed', 0)
 
         return {'sent': sent, 'failed': failed, 'skipped': len(candidates) - len(claimed)}
     except Exception as e:

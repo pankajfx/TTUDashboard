@@ -632,12 +632,18 @@ conversations cannot burst. Set `SMTP_RATE_PER_MIN` to a positive number only if
 genuine `4.4.x` / `4.7.x` throttling shows up in the logs, where retries would absorb
 it but slowly.
 
+**`_run_email_job` is the single path every email takes.** Assignment notifications,
+removal notices, deadline reminders and completion congratulations all go through it,
+so retries, the connection ceiling, failure categorisation, logging, the
+credentials-abort and the durable per-recipient record behave identically for all
+four. Callers needing a per-message hook (completion notifications settle their claim
+ledger as each result lands) pass `on_result(task, result)`.
+
 **Every dispatch is serialised on `_email_dispatch_lock`.** Capping workers bounds one
 job's connections; the lock bounds the whole process. Without it, an admin creating an
 assignment while the post-sync completion pass is running would open two jobs' worth
 of connections and hit the same limit. A second job reports `status: "queued"` until
-the first finishes. All four senders — assignment, removal, **reminder** and
-completion — go through it.
+the first finishes.
 
 Reminders are a background job like the rest (`POST .../remind` returns `202` with an
 `email_job_id`). They used to send inline; at the paced send rate that would hold the

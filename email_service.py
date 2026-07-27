@@ -536,6 +536,57 @@ def send_email(to_address, subject, body_html, body_text=None, session=None):
             sess.close()
 
 
+# ── Email templates ─────────────────────────────────────────────────────────
+# Colour rule for every banner below: white heading text must stay readable at BOTH
+# ends of the gradient, because a reader may see either the gradient or the flat
+# fallback. Every pair here clears 4.8:1 against white. Do not swap in a lighter
+# brand colour without re-checking — the amber #f59e0b this template used to sit on
+# gave 2.15:1, which is why the reminder's title was unreadable.
+
+def _email_header(icon, title, grad_from, grad_to, badge=None):
+    """Build the coloured banner at the top of a notification email.
+
+    A table with a ``bgcolor`` attribute and fully inlined colours, rather than a
+    styled ``<div class="header">``, because of two things mail clients do:
+
+    * Outlook's Word rendering engine ignores ``linear-gradient`` outright. A banner
+      whose colour lives only in a gradient renders with **no background at all**, so
+      the white title lands on white and disappears.
+    * Several clients (Outlook.com, some Gmail paths) strip ``<style>`` blocks, so a
+      title coloured by a CSS class loses its colour too.
+
+    ``bgcolor`` plus an inline ``background-color`` is honoured essentially
+    everywhere; the gradient rides on top purely as an enhancement.
+    """
+    badge_html = ''
+    if badge:
+        # A solid white pill with dark text. The previous rgba(255,255,255,.3) badge
+        # depended on alpha compositing, which Outlook does not do, and was low
+        # contrast even where it worked.
+        badge_html = (
+            f'<div style="margin:8px 0 0;">'
+            f'<span style="display:inline-block;background-color:#ffffff;color:{grad_to};'
+            f'padding:4px 14px;border-radius:20px;font-size:12px;font-weight:700;'
+            f'font-family:\'Segoe UI\',Tahoma,Geneva,Verdana,sans-serif;">{badge}</span>'
+            f'</div>')
+
+    return (
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        f'border="0" style="border-collapse:collapse;">'
+        f'<tr>'
+        f'<td bgcolor="{grad_from}" align="center" '
+        f'style="background-color:{grad_from};'
+        f'background-image:linear-gradient(135deg,{grad_from} 0%,{grad_to} 100%);'
+        f'padding:20px 15px;text-align:center;">'
+        f'<div style="font-size:34px;line-height:1;margin:0 0 6px;">{icon}</div>'
+        f'<h1 style="margin:0;font-family:\'Segoe UI\',Tahoma,Geneva,Verdana,sans-serif;'
+        f'font-size:22px;line-height:1.3;font-weight:600;color:#ffffff;">{title}</h1>'
+        f'{badge_html}'
+        f'</td>'
+        f'</tr>'
+        f'</table>')
+
+
 def send_course_assignment_email(user_email, user_name, course_name, deadline, session=None):
     """
     Send course assignment notification to user with styled HTML template
@@ -551,7 +602,12 @@ def send_course_assignment_email(user_email, user_name, course_name, deadline, s
         SendResult: falsy if the email could not be delivered
     """
     subject = f"📚 New Course Assignment: {course_name}"
-    
+
+    # The title used to be a <span class="label">, and .label is #667eea — the same
+    # colour as the banner's gradient start, so the heading was invisible against its
+    # own background. It is now white on a dark violet that clears 6.3:1.
+    header_html = _email_header('📚', 'New Course Assignment', '#5b46c9', '#764ba2')
+
     # Enhanced HTML email template optimized for both desktop and mobile
     body_html = f"""<!DOCTYPE html>
 <html>
@@ -583,25 +639,9 @@ def send_course_assignment_email(user_email, user_name, course_name, deadline, s
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }}
         
-        .header {{ 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-            color: #ffffff; 
-            padding: 20px 15px;
-            text-align: center;
-        }}
-        
-        .header-icon {{
-            font-size: 36px;
-            margin-bottom: 8px;
-        }}
-        
-        .header h1 {{ 
-            margin: 0; 
-            font-size: 22px; 
-            font-weight: 600;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-        }}
-        
+        /* The banner is built by _email_header() with fully inlined colours — it
+           must not depend on these rules surviving the mail client. */
+
         .content {{ 
             padding: 20px 20px;
             background: #ffffff;
@@ -685,17 +725,14 @@ def send_course_assignment_email(user_email, user_name, course_name, deadline, s
         @media only screen and (max-width: 600px) {{
             .email-container {{ margin: 10px; }}
             .content {{ padding: 15px 12px; }}
-            .header {{ padding: 18px 12px; }}
-            .header h1 {{ font-size: 20px; }}
             .cta-button {{ padding: 10px 22px; font-size: 14px; }}
         }}
     </style>
 </head>
 <body>
     <div class="email-container">
-        <div class="header">
-            <div class="header-icon">📚 <span class="label" style="white-space:nowrap; font-size:18px;">New Course Assignment </span></div>
-        </div>
+        {header_html}
+
             <div class="message-box">
                 <p style="margin: 0; font-size: 14px;">
                     <p style="font-weight:600">Dear {user_name},</p> <p>A new course has been assigned to you as part of our Safety & Health Excellence program. Kindly ignore if already completed.</p>
@@ -775,10 +812,21 @@ def send_deadline_reminder_email(user_email, user_name, course_name, deadline, d
         SendResult: falsy if the email could not be delivered
     """
     subject = f"⏰ REMINDER: Course Deadline - {course_name}"
-    
-    urgency_color = "#ef4444" if days_remaining <= 3 else "#f59e0b"
-    urgency_text = "URGENT" if days_remaining <= 3 else "Important"
-    
+
+    urgent = days_remaining <= 3
+    urgency_text = "URGENT" if urgent else "Important"
+    # Two separate colours, because the same hue cannot serve both jobs. The old
+    # template reused one value for the header background AND for text on white; the
+    # non-urgent amber (#f59e0b) gave white-on-amber at 2.15:1 in the header — the
+    # title was effectively invisible — and amber-on-white at 2.15:1 in the body.
+    # header_* are dark enough for white text (>=4.8:1); accent_color is dark enough
+    # to read on white (>=5:1). See the contrast note above _EMAIL_HEADER.
+    header_from = "#dc2626" if urgent else "#b45309"
+    header_to = "#991b1b" if urgent else "#92400e"
+    accent_color = "#b91c1c" if urgent else "#b45309"
+    header_html = _email_header('⏰', 'Course Deadline Reminder',
+                                header_from, header_to, badge=urgency_text)
+
     body_html = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -807,45 +855,17 @@ def send_deadline_reminder_email(user_email, user_name, course_name, deadline, d
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }}
         
-        .header {{ 
-            background: linear-gradient(135deg, {urgency_color} 0%, #dc2626 100%); 
-            color: #ffffff; 
-            padding: 20px 15px;
-            text-align: center;
-        }}
-        
-        .header-icon {{
-            font-size: 36px;
-            margin-bottom: 8px;
-        }}
-        
-        .header h1 {{ 
-            margin: 0; 
-            font-size: 22px; 
-            font-weight: 600;
-            color: #ffffff;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-        }}
-        
-        .urgency-badge {{ 
-            background: rgba(255, 255, 255, 0.3);
-            color: #ffffff;
-            padding: 5px 14px;
-            border-radius: 20px;
-            display: inline-block;
-            font-weight: 600;
-            font-size: 12px;
-            margin-top: 8px;
-        }}
-        
-        .content {{ 
+        /* The banner is built by _email_header() with fully inlined colours — it
+           must not depend on these rules surviving the mail client. */
+
+        .content {{
             padding: 20px 20px;
             background: #ffffff;
         }}
         
         .alert-box {{
             background: #fff3cd;
-            border-left: 4px solid {urgency_color};
+            border-left: 4px solid {accent_color};
             padding: 12px 15px;
             margin: 15px 0;
             border-radius: 4px;
@@ -867,9 +887,9 @@ def send_deadline_reminder_email(user_email, user_name, course_name, deadline, d
             border-bottom: none;
         }}
         
-        .label {{ 
-            font-weight: 600; 
-            color: {urgency_color};
+        .label {{
+            font-weight: 600;
+            color: {accent_color};
             width: 45%;
         }}
         
@@ -879,7 +899,7 @@ def send_deadline_reminder_email(user_email, user_name, course_name, deadline, d
         }}
         
         .days-remaining {{
-            color: {urgency_color};
+            color: {accent_color};
             font-weight: 700;
             font-size: 18px;
         }}
@@ -908,19 +928,13 @@ def send_deadline_reminder_email(user_email, user_name, course_name, deadline, d
         @media only screen and (max-width: 600px) {{
             .email-container {{ margin: 10px; }}
             .content {{ padding: 15px 12px; }}
-            .header {{ padding: 18px 12px; }}
-            .header h1 {{ font-size: 20px; }}
         }}
     </style>
 </head>
 <body>
     <div class="email-container">
-        <div class="header">
-            <div class="header-icon">⏰</div>
-            <h1>Course Deadline Reminder</h1>
-            <span class="urgency-badge">{urgency_text}</span>
-        </div>
-        
+        {header_html}
+
         <div class="content">
             <p style="font-size: 15px; color: #333333; margin-bottom: 15px;">Dear {user_name},</p>
             
@@ -951,7 +965,7 @@ def send_deadline_reminder_email(user_email, user_name, course_name, deadline, d
 
             <div style="text-align:center;margin:0 0 8px;">
                 <a href="https://www.tmtctata.com/"
-                   style="display:inline-block;background:{urgency_color};color:#ffffff;padding:13px 32px;text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;letter-spacing:0.3px;">
+                   style="display:inline-block;background:{accent_color};color:#ffffff;padding:13px 32px;text-decoration:none;border-radius:6px;font-weight:600;font-size:15px;letter-spacing:0.3px;">
                     Access Course Portal
                 </a>
             </div>
@@ -1009,7 +1023,9 @@ def send_course_removal_email(user_email, user_name, course_name, session=None):
         SendResult: falsy if the email could not be delivered
     """
     subject = f"Course Assignment Removed: {course_name}"
-    
+
+    header_html = _email_header('ℹ️', 'Course Assignment Update', '#5b6472', '#4b5563')
+
     body_html = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -1038,26 +1054,9 @@ def send_course_removal_email(user_email, user_name, course_name, session=None):
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }}
         
-        .header {{ 
-            background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%); 
-            color: #ffffff; 
-            padding: 20px 15px;
-            text-align: center;
-        }}
-        
-        .header-icon {{
-            font-size: 36px;
-            margin-bottom: 8px;
-        }}
-        
-        .header h1 {{ 
-            margin: 0; 
-            font-size: 22px; 
-            font-weight: 600;
-            color: #ffffff;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-        }}
-        
+        /* The banner is built by _email_header() with fully inlined colours — it
+           must not depend on these rules surviving the mail client. */
+
         .content {{ 
             padding: 20px 20px;
             background: #ffffff;
@@ -1095,17 +1094,13 @@ def send_course_removal_email(user_email, user_name, course_name, session=None):
         @media only screen and (max-width: 600px) {{
             .email-container {{ margin: 10px; }}
             .content {{ padding: 15px 12px; }}
-            .header {{ padding: 18px 12px; }}
-            .header h1 {{ font-size: 20px; }}
         }}
     </style>
 </head>
 <body>
     <div class="email-container">
-        <div class="header">
-            <div class="header-icon">ℹ️</div>
-            <h1>Course Assignment Update</h1>
-        </div>
+        {header_html}
+
         
         <div class="content">
             <p style="font-size: 15px; color: #333333; margin-bottom: 15px;">Dear {user_name},</p>
@@ -1180,6 +1175,10 @@ def send_course_completion_email(user_email, user_name, course_name, completion_
     """
     subject = f"✅ Course Completed: {course_name}"
 
+    # The old banner was #10b981 -> #059669; white text on the lighter end was
+    # 2.54:1. Darkened one step to clear 5.4:1 while staying the same green.
+    header_html = _email_header('🎉', 'Course Completed', '#047857', '#065f46')
+
     on_time_note = ""
     if deadline and completion_date:
         try:
@@ -1227,25 +1226,8 @@ def send_course_completion_email(user_email, user_name, course_name, completion_
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }}
 
-        .header {{
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            color: #ffffff;
-            padding: 20px 15px;
-            text-align: center;
-        }}
-
-        .header-icon {{
-            font-size: 36px;
-            margin-bottom: 8px;
-        }}
-
-        .header h1 {{
-            margin: 0;
-            font-size: 22px;
-            font-weight: 600;
-            color: #ffffff;
-            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-        }}
+        /* The banner is built by _email_header() with fully inlined colours — it
+           must not depend on these rules surviving the mail client. */
 
         .content {{
             padding: 20px 20px;
@@ -1284,17 +1266,12 @@ def send_course_completion_email(user_email, user_name, course_name, completion_
         @media only screen and (max-width: 600px) {{
             .email-container {{ margin: 10px; }}
             .content {{ padding: 15px 12px; }}
-            .header {{ padding: 18px 12px; }}
-            .header h1 {{ font-size: 20px; }}
         }}
     </style>
 </head>
 <body>
     <div class="email-container">
-        <div class="header">
-            <div class="header-icon">🎉</div>
-            <h1>Course Completed</h1>
-        </div>
+        {header_html}
 
         <div class="content">
             <p style="font-size: 15px; color: #333333; margin-bottom: 15px;">Dear {user_name},</p>
